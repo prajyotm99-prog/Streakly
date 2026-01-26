@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "602957591882",
+    "project_id": "task-tracker-4c60e",
+    "storage_bucket": "task-tracker-4c60e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:602957591882:android:27388f62041bd88d77bdb3",
+        "android_client_info": {
+          "package_name": "com.prajyot.tasktracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWk3FpE1Ej3QevrogyOwPZsNBkMGij8Mo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

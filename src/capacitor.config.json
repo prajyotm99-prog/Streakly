@@ -1,0 +1,11 @@
+{
+  "appId": "com.prajyot.tasktracker",
+  "appName": "Task Tracker",
+  "webDir": "build",
+  "android": {
+    "compileSdkVersion": 33,
+    "targetSdkVersion": 33,
+    "minSdkVersion": 22,
+    "javaVersion": 17
+  }
+}
