@@ -338,7 +338,7 @@ const changeDateBy = (days) => {
         const userResult = await window.storage.get('userName');
         if (userResult) {
           setUserName(userResult.value);
-          setPage('tasks');
+          setPage('tracker');
         }
       } catch (e) {
         // User not set yet
@@ -408,6 +408,18 @@ const changeDateBy = (days) => {
     return () => clearInterval(interval);
   }, [tasks, taskStatuses]);
 
+  // Reset to today when app resumes from background
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && page === 'tracker') {
+        setSelectedDate(getTodayString());
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [page]);
+
   const saveUserName = async (name) => {
     await window.storage.set('userName', name);
   };
@@ -435,7 +447,7 @@ const changeDateBy = (days) => {
     if (nameInput.trim()) {
       setUserName(nameInput.trim());
       await saveUserName(nameInput.trim());
-      setPage('tasks');
+      setPage('tracker');
     }
   };
 
@@ -666,7 +678,10 @@ const changeDateBy = (days) => {
 
         <div className="bottom-action">
           <button 
-            onClick={() => setPage('tracker')}
+            onClick={() => {
+              setSelectedDate(getTodayString()); // Reset to today
+              setPage('tracker');
+            }}
             className="tracker-button"
           >
             Tracker
@@ -1030,7 +1045,12 @@ const changeDateBy = (days) => {
             <div className="dialog-content" onClick={(e) => e.stopPropagation()}>
               <p className="dialog-message">{statusDialogMessage}</p>
               <button 
-                onClick={() => setShowStatusDialog(false)}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowStatusDialog(false);
+                }}
                 className="primary-button"
               >
                 OK
