@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Home, Plus, X, Trash2 } from 'lucide-react';
 // // import { useEffect } from 'react';
 // import { initPushNotifications } from './PushNotifications';
-import { initPushNotifications, scheduleDailyMotivation } from './PushNotifications';
+import { initPushNotifications, triggerDailyNotificationCheck } from './PushNotifications';
 import { Capacitor } from '@capacitor/core';
 console.log('📱 Platform:', Capacitor.getPlatform());
 console.log('📱 Is native:', Capacitor.isNativePlatform());
@@ -297,7 +297,7 @@ export default function TaskTrackerApp() {
   useEffect(() => {
     console.log('🚀 App mounted – initializing push notifications');
     initPushNotifications();
-    scheduleDailyMotivation();
+    //scheduleDailyMotivation();
   }, []);
 
 const handleTouchMove = (e) => {
@@ -419,6 +419,15 @@ const changeDateBy = (days) => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [page]);
+
+// Schedule notifications when tasks or statuses change
+  useEffect(() => {
+    if (tasks.length > 0) {
+      // Import at top of file first
+      const { triggerDailyNotificationCheck } = require('./PushNotifications');
+      triggerDailyNotificationCheck(tasks, taskStatuses);
+    }
+  }, [tasks, taskStatuses]);
 
   const saveUserName = async (name) => {
     await window.storage.set('userName', name);
@@ -928,6 +937,7 @@ const changeDateBy = (days) => {
             <Calendar size={24} />
           </button>
         </header>
+        
 
         {/* VERSION INDICATOR - v3.0 INLINE CALENDAR */}
         <div style={{display: 'none'}}>v3.0</div>
