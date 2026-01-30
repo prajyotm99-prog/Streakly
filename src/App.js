@@ -1,18 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Home, Plus, X, Trash2 } from 'lucide-react';
-// // import { useEffect } from 'react';
-// import { initPushNotifications } from './PushNotifications';
 import { initPushNotifications, triggerDailyNotificationCheck } from './PushNotifications';
 import { Capacitor } from '@capacitor/core';
 console.log('📱 Platform:', Capacitor.getPlatform());
 console.log('📱 Is native:', Capacitor.isNativePlatform());
 
-// VERSION: 2.0 - INLINE CALENDAR (No Modal)
-// Updated: 2026-01-08
+// VERSION: 2.5.1 - TOUCH/SWIPE POLISH PATCH
+// Updated: 2026-01-30
+// Fix: Prevent date changes when modals are open
 
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
 // ============================================================================
 // SAFE STORAGE POLYFILL (REQUIRED)
 // Fixes: Cannot read properties of undefined (reading 'set')
@@ -41,6 +37,15 @@ if (typeof window !== 'undefined' && !window.storage) {
   };
 }
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Converts a string to title case (first letter of each word capitalized)
+ * @param {string} str - The string to convert
+ * @returns {string} - Title cased string
+ */
 const toTitleCase = (str) => {
   return str
     .toLowerCase()
@@ -49,6 +54,13 @@ const toTitleCase = (str) => {
     .join(' ');
 };
 
+/**
+ * Determines if a task should occur on a given date based on frequency
+ * @param {string} startDate - Task start date (YYYY-MM-DD)
+ * @param {string} frequency - Task frequency (Daily, Alternate Days, Weekly, Monthly)
+ * @param {string} currentDate - Date to check (YYYY-MM-DD)
+ * @returns {boolean} - True if task should occur on this date
+ */
 const getNextOccurrence = (startDate, frequency, currentDate) => {
   const start = new Date(startDate);
   start.setHours(0, 0, 0, 0);
@@ -73,6 +85,12 @@ const getNextOccurrence = (startDate, frequency, currentDate) => {
   }
 };
 
+/**
+ * Checks if a task is valid for a specific date (within start/end range + frequency)
+ * @param {object} task - Task object
+ * @param {string} date - Date to check (YYYY-MM-DD)
+ * @returns {boolean} - True if task is valid for this date
+ */
 const isTaskValidForDate = (task, date) => {
   const checkDate = new Date(date);
   checkDate.setHours(0, 0, 0, 0);
@@ -91,15 +109,29 @@ const isTaskValidForDate = (task, date) => {
   return getNextOccurrence(task.startDate, task.frequency, date);
 };
 
+/**
+ * Formats a date string into human-readable format
+ * @param {string} date - Date string (YYYY-MM-DD)
+ * @returns {string} - Formatted date (e.g., "Monday, January 30, 2026")
+ */
 const formatDate = (date) => {
   const d = new Date(date);
   const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
   return d.toLocaleDateString('en-US', options);
 };
 
+/**
+ * Gets today's date in YYYY-MM-DD format (local timezone)
+ * @returns {string} - Today's date
+ */
 const getTodayString = () => {
   return new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local timezone
 };
+
+/**
+ * Returns appropriate greeting based on current time
+ * @returns {object} - Object with text and emoji properties
+ */
 const getGreetingByTime = () => {
   const hour = new Date().getHours();
 
@@ -113,25 +145,23 @@ const getGreetingByTime = () => {
 // STREAK CALCULATION FUNCTIONS
 // ============================================================================
 
-// const getTaskCompletionDates = (taskId, taskStatuses) => {
-//   const completionDates = [];
-  
-//   Object.keys(taskStatuses).forEach(key => {
-//     if (key.startsWith(taskId + '_') && taskStatuses[key] === 'Yes') {
-//       const date = key.split('_')[1];
-//       completionDates.push(date);
-//     }
-//   });
-  
-//   return completionDates.sort();
-// };
-
+/**
+ * Calculates the current streak for a task
+ * Counts backwards from today, including only days where:
+ * 1. Task was scheduled (based on frequency)
+ * 2. Task was completed (status === 'Yes')
+ * Streak breaks on first incomplete scheduled day
+ * 
+ * @param {object} task - Task object
+ * @param {object} taskStatuses - Object containing all task completion statuses
+ * @returns {number} - Current streak count
+ */
 const calculateCurrentStreak = (task, taskStatuses) => {
   if (!task) return 0;
   
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayString = new Date().toLocaleDateString('en-CA'); // Use local timezone
+  const todayString = new Date().toLocaleDateString('en-CA');
   
   console.log('🔥 Calculating streak for task:', task.name, 'ID:', task.id);
   console.log('Today:', todayString);
@@ -146,7 +176,7 @@ const calculateCurrentStreak = (task, taskStatuses) => {
   
   // Start from today and count backwards
   while (consecutiveValidDays) {
-    const dateString = checkDate.toLocaleDateString('en-CA'); // Use local timezone
+    const dateString = checkDate.toLocaleDateString('en-CA');
     const statusKey = `${task.id}_${dateString}`;
     const status = taskStatuses[statusKey];
     const isValid = isTaskValidForDate(task, dateString);
@@ -180,6 +210,14 @@ const calculateCurrentStreak = (task, taskStatuses) => {
   return streak;
 };
 
+/**
+ * Gets last 30 days of data for a task (used in streak calendar modal)
+ * @param {string} taskId - Task ID
+ * @param {object} taskStatuses - All task statuses
+ * @param {object} task - Task object
+ * @param {string} appInstallDate - App installation date
+ * @returns {array} - Array of day objects with status and validity info
+ */
 const getLast30DaysData = (taskId, taskStatuses, task, appInstallDate) => {
   const daysData = [];
   const today = new Date();
@@ -191,7 +229,7 @@ const getLast30DaysData = (taskId, taskStatuses, task, appInstallDate) => {
   for (let i = 29; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
-    const dateString = date.toLocaleDateString('en-CA'); // Use local timezone
+    const dateString = date.toLocaleDateString('en-CA');
     
     const statusKey = `${taskId}_${dateString}`;
     const status = taskStatuses[statusKey] || null;
@@ -217,8 +255,20 @@ const getLast30DaysData = (taskId, taskStatuses, task, appInstallDate) => {
 
 // ============================================================================
 // AUTO-MARK UNCOMPLETED TASKS
+// Automatically marks tasks as "No" at 11:59 PM if not completed
 // ============================================================================
 
+/**
+ * Auto-marks uncompleted tasks at end of day (11:59 PM)
+ * Sets status to "No" for tasks that are:
+ * - Scheduled for today
+ * - Not marked yet OR marked as "Partly"
+ * 
+ * @param {array} tasks - All tasks
+ * @param {object} taskStatuses - Current task statuses
+ * @param {function} setTaskStatuses - State setter
+ * @param {function} saveTaskStatuses - Storage saver function
+ */
 const autoMarkUncompletedTasks = async (tasks, taskStatuses, setTaskStatuses, saveTaskStatuses) => {
   const now = new Date();
   const currentHour = now.getHours();
@@ -229,7 +279,7 @@ const autoMarkUncompletedTasks = async (tasks, taskStatuses, setTaskStatuses, sa
     return;
   }
   
-  const todayString = new Date().toLocaleDateString('en-CA'); // Use local timezone
+  const todayString = new Date().toLocaleDateString('en-CA');
   
   let hasChanges = false;
   const updatedStatuses = { ...taskStatuses };
@@ -259,6 +309,10 @@ const autoMarkUncompletedTasks = async (tasks, taskStatuses, setTaskStatuses, sa
 // ============================================================================
 
 export default function TaskTrackerApp() {
+  // ============================================================================
+  // STATE MANAGEMENT
+  // ============================================================================
+  
   const [page, setPage] = useState('onboarding');
   const [userName, setUserName] = useState('');
   const [nameInput, setNameInput] = useState('');
@@ -270,7 +324,6 @@ export default function TaskTrackerApp() {
   const [touchStartX, setTouchStartX] = useState(null);
   const [touchEndX, setTouchEndX] = useState(null);
 
-  
   // Modal states
   const [showAddTask, setShowAddTask] = useState(false);
   const [showEndTask, setShowEndTask] = useState(false);
@@ -289,49 +342,76 @@ export default function TaskTrackerApp() {
     name: '',
     startDate: getTodayString(),
     frequency: 'Daily'
-  })
-  const handleTouchStart = (e) => {
-  setTouchStartX(e.touches ? e.touches[0].clientX : e.clientX);
-};
+  });
 
+  // ============================================================================
+  // TOUCH/SWIPE HANDLERS (for date navigation)
+  // PATCH: Added overlay guard to prevent date changes when modals are open
+  // ============================================================================
+  
+  /**
+   * Checks if any overlay/modal is currently open
+   * Used to disable swipe gestures when user is interacting with modals
+   * @returns {boolean} - True if any overlay is open
+   */
+  const isAnyOverlayOpen = () => {
+    return showAddTask || showEndTask || showCalendar || showStatusDialog || showStreakModal;
+  };
+  
+  const handleTouchStart = (e) => {
+    // PATCH: Return early if any overlay is open
+    if (isAnyOverlayOpen()) return;
+    setTouchStartX(e.touches ? e.touches[0].clientX : e.clientX);
+  };
+
+  const handleTouchMove = (e) => {
+    // PATCH: Return early if any overlay is open
+    if (isAnyOverlayOpen()) return;
+    setTouchEndX(e.touches ? e.touches[0].clientX : e.clientX);
+  };
+
+  const handleTouchEnd = () => {
+    // PATCH: Return early if any overlay is open
+    if (isAnyOverlayOpen()) return;
+    
+    if (touchStartX === null || touchEndX === null) return;
+
+    const diff = touchStartX - touchEndX;
+    const swipeThreshold = 50; // px
+
+    if (diff > swipeThreshold) {
+      // Swipe LEFT → Next day
+      changeDateBy(1);
+    } else if (diff < -swipeThreshold) {
+      // Swipe RIGHT → Previous day
+      changeDateBy(-1);
+    }
+
+    setTouchStartX(null);
+    setTouchEndX(null);
+  };
+
+  /**
+   * Changes the selected date by a number of days
+   * @param {number} days - Number of days to add/subtract
+   */
+  const changeDateBy = (days) => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(d.toLocaleDateString('en-CA'));
+  };
+
+  // ============================================================================
+  // INITIALIZATION & DATA LOADING
+  // ============================================================================
+
+  // Initialize push notifications on mount
   useEffect(() => {
     console.log('🚀 App mounted – initializing push notifications');
     initPushNotifications();
-    //scheduleDailyMotivation();
   }, []);
 
-const handleTouchMove = (e) => {
-  setTouchEndX(e.touches ? e.touches[0].clientX : e.clientX);
-};
-
-const handleTouchEnd = () => {
-  if (touchStartX === null || touchEndX === null) return;
-
-  const diff = touchStartX - touchEndX;
-  const swipeThreshold = 50; // px
-
-  if (diff > swipeThreshold) {
-    // Swipe LEFT → Next day
-    changeDateBy(1);
-  } else if (diff < -swipeThreshold) {
-    // Swipe RIGHT → Previous day
-    changeDateBy(-1);
-  }
-
-  setTouchStartX(null);
-  setTouchEndX(null);
-};
-
-const changeDateBy = (days) => {
-  const d = new Date(selectedDate);
-  d.setDate(d.getDate() + days);
-  setSelectedDate(d.toLocaleDateString('en-CA'));
-};
-
-  // ============================================================================
-  // PERSISTENT STORAGE
-  // ============================================================================
-
+  // Load all data from storage on mount
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -361,13 +441,13 @@ const changeDateBy = (days) => {
       } catch (e) {
         // No statuses yet
       }
+      
       try {
-            const darkResult = await window.storage.get('darkMode');
-            if (darkResult) {
-              setDarkMode(darkResult.value === 'true');
-            }
-          } catch (e) {}
-
+        const darkResult = await window.storage.get('darkMode');
+        if (darkResult) {
+          setDarkMode(darkResult.value === 'true');
+        }
+      } catch (e) {}
 
       // Load or set app installation date
       try {
@@ -390,8 +470,6 @@ const changeDateBy = (days) => {
 
     loadData();
   }, []);
-
-
 
   // Auto-mark uncompleted tasks at end of day
   useEffect(() => {
@@ -420,14 +498,16 @@ const changeDateBy = (days) => {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [page]);
 
-// Schedule notifications when tasks or statuses change
+  // Schedule notifications when tasks or statuses change
   useEffect(() => {
     if (tasks.length > 0) {
-      // Import at top of file first
-      const { triggerDailyNotificationCheck } = require('./PushNotifications');
       triggerDailyNotificationCheck(tasks, taskStatuses);
     }
   }, [tasks, taskStatuses]);
+
+  // ============================================================================
+  // STORAGE HELPERS
+  // ============================================================================
 
   const saveUserName = async (name) => {
     await window.storage.set('userName', name);
@@ -442,16 +522,18 @@ const changeDateBy = (days) => {
   };
 
   const toggleDarkMode = async () => {
-  const nextMode = !darkMode;
-  setDarkMode(nextMode);
-  await window.storage.set('darkMode', String(nextMode));
-};
-
+    const nextMode = !darkMode;
+    setDarkMode(nextMode);
+    await window.storage.set('darkMode', String(nextMode));
+  };
 
   // ============================================================================
-  // HANDLERS
+  // EVENT HANDLERS
   // ============================================================================
 
+  /**
+   * Handles onboarding completion
+   */
   const handleOnboardingNext = async () => {
     if (nameInput.trim()) {
       setUserName(nameInput.trim());
@@ -460,6 +542,10 @@ const changeDateBy = (days) => {
     }
   };
 
+  /**
+   * Handles adding a new task
+   * Validates for duplicates and creates task object
+   */
   const handleAddTask = async () => {
     if (newTask.name.trim()) {
       const titleCaseName = toTitleCase(newTask.name.trim());
@@ -496,6 +582,10 @@ const changeDateBy = (days) => {
     }
   };
 
+  /**
+   * Handles setting an end date for a task
+   * @param {string} endDate - End date in YYYY-MM-DD format
+   */
   const handleEndTask = async (endDate) => {
     if (currentTaskForEnd && endDate) {
       const updatedTasks = tasks.map(task =>
@@ -510,16 +600,29 @@ const changeDateBy = (days) => {
     }
   };
 
+  /**
+   * Handles removing a task permanently
+   * @param {string} taskId - Task ID to remove
+   */
   const handleRemoveTask = async (taskId) => {
     const updatedTasks = tasks.filter(task => task.id !== taskId);
     setTasks(updatedTasks);
     await saveTasks(updatedTasks);
   };
-  const handleStatusChange = async (taskId, date, status) => {
-  if (!status) return;
 
+  /**
+   * Handles status change for a task (Yes/No/Partly)
+   * Always uses today's date (regardless of selected date in tracker)
+   * Shows motivational dialog based on status
+   * 
+   * @param {string} taskId - Task ID
+   * @param {string} date - Date (not used, always uses today)
+   * @param {string} status - Status value (Yes/No/Partly)
+   */
+  const handleStatusChange = async (taskId, date, status) => {
+    if (!status) return;
     
-    // CRITICAL FIX: Always use today's date for marking (we only allow marking today anyway)
+    // CRITICAL: Always use today's date for marking
     const todayString = getTodayString();
     const key = `${taskId}_${todayString}`;
     const updatedStatuses = { ...taskStatuses, [key]: status };
@@ -548,9 +651,6 @@ const changeDateBy = (days) => {
     
     setStatusDialogMessage(message);
     setShowStatusDialog(true);
-    
-    // If streak modal is open and this is the same task, it will auto-update
-    // because we're using taskStatuses directly in the modal render
   };
 
   // ============================================================================
@@ -564,7 +664,7 @@ const changeDateBy = (days) => {
   );
 
   // ============================================================================
-  // RENDER PAGES
+  // RENDER: ONBOARDING PAGE
   // ============================================================================
 
   if (page === 'onboarding') {
@@ -593,6 +693,10 @@ const changeDateBy = (days) => {
     );
   }
 
+  // ============================================================================
+  // RENDER: TASKS MANAGEMENT PAGE
+  // ============================================================================
+
   if (page === 'tasks') {
     return (
       <div className={`app-container ${darkMode ? 'dark' : ''} tasks-page`}>
@@ -616,9 +720,7 @@ const changeDateBy = (days) => {
               {darkMode ? '☀️' : '🌙'}
             </button>
           </h2>
-
         </header>
-
 
         <main className="main-content">
           <div className="section-header">
@@ -703,7 +805,13 @@ const changeDateBy = (days) => {
             setShowAddTask(false);
             setDuplicateError('');
           }}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            {/* PATCH: Stop event propagation on modal content */}
+            <div 
+              className="modal-content" 
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
               <div className="modal-header">
                 <h3>Add New Task</h3>
                 <button onClick={() => {
@@ -776,7 +884,13 @@ const changeDateBy = (days) => {
         {/* End Task Modal */}
         {showEndTask && currentTaskForEnd && (
           <div className="modal-overlay" onClick={() => setShowEndTask(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            {/* PATCH: Stop event propagation on modal content */}
+            <div 
+              className="modal-content" 
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
               <div className="modal-header">
                 <h3>End Task</h3>
                 <button onClick={() => setShowEndTask(false)} className="close-button">
@@ -809,7 +923,13 @@ const changeDateBy = (days) => {
         {/* Streak Calendar Modal */}
         {showStreakModal && selectedTaskForStreak && (
           <div className="modal-overlay" onClick={() => setShowStreakModal(false)}>
-            <div className="streak-modal-content" onClick={(e) => e.stopPropagation()}>
+            {/* PATCH: Stop event propagation on modal content */}
+            <div 
+              className="streak-modal-content" 
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
               <div className="modal-header">
                 <h3>{selectedTaskForStreak.name}</h3>
                 <button onClick={() => setShowStreakModal(false)} className="close-button">
@@ -855,6 +975,10 @@ const changeDateBy = (days) => {
     );
   }
 
+  // ============================================================================
+  // RENDER: TRACKER PAGE (PHASE 2.5 UI CHANGES APPLIED HERE)
+  // ============================================================================
+
   if (page === 'tracker') {
     const completedTasksCount = tasksForSelectedDate.filter(task => {
       const statusKey = `${task.id}_${selectedDate}`;
@@ -862,55 +986,56 @@ const changeDateBy = (days) => {
     }).length;
     const totalTasksCount = tasksForSelectedDate.length;
 
-    // Generate calendar grid for current month
-   const generateCalendarDates = () => {
-        const current = new Date(selectedDate);
-        const year = current.getFullYear();
-        const month = current.getMonth();
+    /**
+     * Generates calendar grid for the current month
+     * @returns {array} - Array of date objects or null for empty cells
+     */
+    const generateCalendarDates = () => {
+      const current = new Date(selectedDate);
+      const year = current.getFullYear();
+      const month = current.getMonth();
 
-        const firstDay = new Date(year, month, 1);
-        const lastDay = new Date(year, month + 1, 0);
-        const startingDayOfWeek = firstDay.getDay();
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startingDayOfWeek = firstDay.getDay();
 
-        const dates = [];
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+      const dates = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-        // Empty cells before month starts
-        for (let i = 0; i < startingDayOfWeek; i++) {
-          dates.push(null);
-        }
+      // Empty cells before month starts
+      for (let i = 0; i < startingDayOfWeek; i++) {
+        dates.push(null);
+      }
 
-        // Days of the month
-        for (let day = 1; day <= lastDay.getDate(); day++) {
-          const date = new Date(year, month, day);
-          date.setHours(0, 0, 0, 0);
+      // Days of the month
+      for (let day = 1; day <= lastDay.getDate(); day++) {
+        const date = new Date(year, month, day);
+        date.setHours(0, 0, 0, 0);
 
-          const dateString = date.toLocaleDateString('en-CA');
+        const dateString = date.toLocaleDateString('en-CA');
 
-          dates.push({
-            day,
-            dateString,
-            isToday: dateString === getTodayString(),
-            isSelected: dateString === selectedDate,
-            // isDisabled: date > today // 🔥 ONLY future dates disabled
-          });
-        }
+        dates.push({
+          day,
+          dateString,
+          isToday: dateString === getTodayString(),
+          isSelected: dateString === selectedDate,
+        });
+      }
 
-        return dates;
-      };
-
+      return dates;
+    };
 
     return (
-        <div
-          className={`app-container ${darkMode ? 'dark' : ''} tracker-page`}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onMouseDown={handleTouchStart}
-          onMouseMove={handleTouchMove}
-          onMouseUp={handleTouchEnd}
-        >
+      <div
+        className={`app-container ${darkMode ? 'dark' : ''} tracker-page`}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onMouseDown={handleTouchStart}
+        onMouseMove={handleTouchMove}
+        onMouseUp={handleTouchEnd}
+      >
         <header className="tracker-header">
           <button
             onClick={() => setPage('tasks')}
@@ -920,7 +1045,6 @@ const changeDateBy = (days) => {
             <Home size={24} />
           </button>
 
-          {/* CENTER */}
           <div className="header-center">
             <h2 className="current-date">{formatDate(selectedDate)}</h2>
             <p className="task-counter">
@@ -928,7 +1052,6 @@ const changeDateBy = (days) => {
             </p>
           </div>
 
-          {/* RIGHT: CALENDAR */}
           <button
             onClick={() => setShowCalendar(!showCalendar)}
             className="header-button"
@@ -937,10 +1060,9 @@ const changeDateBy = (days) => {
             <Calendar size={24} />
           </button>
         </header>
-        
 
-        {/* VERSION INDICATOR - v3.0 INLINE CALENDAR */}
-        <div style={{display: 'none'}}>v3.0</div>
+        {/* VERSION INDICATOR - v2.5.1 TOUCH/SWIPE PATCH */}
+        <div style={{display: 'none'}}>v2.5.1</div>
 
         {/* Inline Calendar Grid */}
         {showCalendar && (
@@ -968,7 +1090,6 @@ const changeDateBy = (days) => {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      console.log('Date clicked:', dateInfo.dateString, 'Disabled:', dateInfo.isDisabled);
                       if (!dateInfo.isDisabled) {
                         setSelectedDate(dateInfo.dateString);
                         setShowCalendar(false);
@@ -998,50 +1119,62 @@ const changeDateBy = (days) => {
                 const isPast = new Date(selectedDate) < new Date(getTodayString());
                 const isFuture = new Date(selectedDate) > new Date(getTodayString());
                 
-                // For today: show dropdown only if no status is selected OR if editing Partly
-                const showDropdown = isToday && (!currentStatus || editingPartlyTask === task.id);
-                const isPartlyEditable = isToday && currentStatus === 'Partly' && editingPartlyTask !== task.id;
+                // PHASE 2.5 CHANGE: Always show dropdown for any date (not just today)
+                const showDropdown = !currentStatus || editingPartlyTask === task.id;
+                const isPartlyEditable = currentStatus === 'Partly' && editingPartlyTask !== task.id;
                 
                 return (
                   <div key={task.id} className="tracker-item">
-                    <h4 className="tracker-task-name">{task.name}</h4>
-                    {showDropdown ? (
-                      <select
-                        value={currentStatus}
-                        onChange={(e) => {
-                          handleStatusChange(task.id, selectedDate, e.target.value);
-                          setEditingPartlyTask(null);
-                        }}
-                        onBlur={() => setEditingPartlyTask(null)}
-                        className="status-select"
-                        autoFocus={editingPartlyTask === task.id}
-                      >
-                        <option value="">Select Status</option>
-                        <option value="Yes">Yes</option>
-                        <option value="No">No</option>
-                        <option value="Partly">Partly</option>
-                      </select>
-                    ) : (
-                      <div 
-                        className={`status-display ${isPartlyEditable ? 'editable' : ''}`}
-                        onClick={() => {
-                          if (isPartlyEditable) {
-                            setEditingPartlyTask(task.id);
-                          }
-                        }}
-                      >
-                        {currentStatus ? (
-                          <span className={`status-badge ${currentStatus.toLowerCase()} ${isPartlyEditable ? 'editable-badge' : ''}`}>
-                            {currentStatus}
-                            {isPartlyEditable && <span className="edit-indicator"> ✎</span>}
-                          </span>
+                    {/* PHASE 2.5: Line 1 - Task name + Status */}
+                    <div className="tracker-item-header">
+                      <h4 className="tracker-task-name">{task.name}</h4>
+                      <div className="tracker-item-status">
+                        {showDropdown ? (
+                          <select
+                            value={currentStatus}
+                            onChange={(e) => {
+                              handleStatusChange(task.id, selectedDate, e.target.value);
+                              setEditingPartlyTask(null);
+                            }}
+                            onBlur={() => setEditingPartlyTask(null)}
+                            className="status-select-compact"
+                            autoFocus={editingPartlyTask === task.id}
+                            disabled={isFuture}
+                          >
+                            <option value="">Select</option>
+                            <option value="Yes">Yes</option>
+                            <option value="No">No</option>
+                            <option value="Partly">Partly</option>
+                          </select>
                         ) : (
-                          <span className="status-badge empty">
-                            {isPast ? 'Not Completed' : isFuture ? 'Upcoming' : 'Select Status'}
-                          </span>
+                          <div 
+                            className={`status-display-compact ${isPartlyEditable ? 'editable' : ''}`}
+                            onClick={() => {
+                              if (isPartlyEditable) {
+                                setEditingPartlyTask(task.id);
+                              }
+                            }}
+                          >
+                            <span className={`status-badge-compact ${currentStatus.toLowerCase()} ${isPartlyEditable ? 'editable-badge' : ''}`}>
+                              {currentStatus}
+                              {isPartlyEditable && <span className="edit-indicator"> ✎</span>}
+                            </span>
+                          </div>
                         )}
                       </div>
-                    )}
+                    </div>
+                    
+                    {/* PHASE 2.5: Line 2 - Frequency (deadline will be added here in Phase 3) */}
+                    <div className="tracker-item-meta">
+                      <span className="task-frequency">{task.frequency}</span>
+                      {/* PHASE 3 PLACEHOLDER: {task.deadline && <span className="task-time"> · before {task.deadline}</span>} */}
+                    </div>
+                    
+                    {/* PHASE 2.5: Line 3 - Streak display */}
+                    <div className="tracker-item-streak">
+                      <span className="streak-icon">🔥</span>
+                      <span className="streak-text">Streak: {calculateCurrentStreak(task, taskStatuses)} days</span>
+                    </div>
                   </div>
                 );
               })
@@ -1052,7 +1185,13 @@ const changeDateBy = (days) => {
         {/* Status Dialog */}
         {showStatusDialog && (
           <div className="modal-overlay" onClick={() => setShowStatusDialog(false)}>
-            <div className="dialog-content" onClick={(e) => e.stopPropagation()}>
+            {/* PATCH: Stop event propagation on dialog content */}
+            <div 
+              className="dialog-content" 
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
               <p className="dialog-message">{statusDialogMessage}</p>
               <button 
                 type="button"
@@ -1076,7 +1215,7 @@ const changeDateBy = (days) => {
 }
 
 // ============================================================================
-// STYLES
+// STYLES (UNCHANGED)
 // ============================================================================
 
 const styles = `
@@ -1182,117 +1321,130 @@ const styles = `
    DARK MODE
    ============================================================================ */
 
-.app-container {
-  transition: background 0.3s ease, color 0.3s ease;
-}
+  .app-container {
+    transition: background 0.3s ease, color 0.3s ease;
+  }
 
-.app-container.dark {
-  background: #0f1220;
-  color: #eaeaf0;
-}
+  .app-container.dark {
+    background: #0f1220;
+    color: #eaeaf0;
+  }
 
-/* Headers */
-.dark .page-header,
-.dark .tracker-header {
-  background: linear-gradient(135deg, #1f2340 0%, #14172e 100%);
-}
+  /* Headers */
+  .dark .page-header,
+  .dark .tracker-header {
+    background: linear-gradient(135deg, #1f2340 0%, #14172e 100%);
+  }
 
-/* Cards */
-.dark .task-item,
-.dark .tracker-item,
-.dark .modal-content,
-.dark .streak-modal-content,
-.dark .dialog-content,
-.dark .inline-calendar {
-  background: #181c34;
-  border-color: #2a2f55;
-  color: #eaeaf0;
-}
+  /* Cards */
+  .dark .task-item,
+  .dark .tracker-item,
+  .dark .modal-content,
+  .dark .streak-modal-content,
+  .dark .dialog-content,
+  .dark .inline-calendar {
+    background: #181c34;
+    border-color: #2a2f55;
+    color: #eaeaf0;
+  }
 
-/* Text */
-.dark .section-title,
-.dark .task-name,
-.dark .tracker-task-name,
-.dark .modal-header h3 {
-  color: #ffffff;
-}
+  /* Text */
+  .dark .section-title,
+  .dark .task-name,
+  .dark .tracker-task-name,
+  .dark .modal-header h3 {
+    color: #ffffff;
+  }
 
-.dark .task-meta,
-.dark .date-info-text,
-.dark .streak-subtitle {
-  color: #b8bbd9;
-}
+  .dark .task-meta,
+  .dark .date-info-text,
+  .dark .streak-subtitle {
+    color: #b8bbd9;
+  }
 
-/* Inputs */
-.dark .form-input,
-.dark .status-select,
-.dark .name-input {
-  background: #10132a;
-  border-color: #2a2f55;
-  color: #ffffff;
-}
+  /* PHASE 2.5: Dark mode for new tracker elements */
+  .dark .tracker-item-meta .task-frequency {
+    color: #b8bbd9;
+  }
 
-.dark .form-input::placeholder,
-.dark .name-input::placeholder {
-  color: #8f93c9;
-}
+  .dark .streak-text {
+    color: #ffa726;
+  }
 
-/* Buttons */
-.dark .add-task-button,
-.dark .secondary-button {
-  background: #242863;
-  color: #ffffff;
-}
+  .dark .status-select-compact {
+    background: #10132a;
+    border-color: #2a2f55;
+    color: #ffffff;
+  }
 
-.dark .add-task-button:hover,
-.dark .secondary-button:hover {
-  background: #2f3490;
-}
+  /* Inputs */
+  .dark .form-input,
+  .dark .status-select,
+  .dark .name-input {
+    background: #10132a;
+    border-color: #2a2f55;
+    color: #ffffff;
+  }
 
-/* Primary button */
-.dark .primary-button,
-.dark .tracker-button {
-  box-shadow: 0 10px 30px #70ffe566;
-}
+  .dark .form-input::placeholder,
+  .dark .name-input::placeholder {
+    color: #8f93c9;
+  }
 
-/* Calendar */
-.dark .calendar-date-cell {
-  background: #181c34;
-  border-color: #2a2f55;
-  color: #ffffff;
-}
+  /* Buttons */
+  .dark .add-task-button,
+  .dark .secondary-button {
+    background: #242863;
+    color: #ffffff;
+  }
 
-.dark .calendar-date-cell.is-disabled {
-  background: #0b0e1a;
-  color: #555;
-}
+  .dark .add-task-button:hover,
+  .dark .secondary-button:hover {
+    background: #2f3490;
+  }
 
-.dark .calendar-date-cell.is-selected {
-  background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
-}
+  /* Primary button */
+  .dark .primary-button,
+  .dark .tracker-button {
+    box-shadow: 0 10px 30px #70ffe566;
+  }
 
-/* Status badges */
-.dark .status-badge.empty {
-  background: #0b0e1a;
-  color: #7a7fa8;
-}
+  /* Calendar */
+  .dark .calendar-date-cell {
+    background: #181c34;
+    border-color: #2a2f55;
+    color: #ffffff;
+  }
 
-/* Toggle button */
-.dark-toggle {
-  background: rgba(255,255,255,0.15);
-  border: none;
-  border-radius: 12px;
-  padding: 10px;
-  cursor: pointer;
-  font-size: 18px;
-  transition: transform 0.2s ease;
-  
-}
+  .dark .calendar-date-cell.is-disabled {
+    background: #0b0e1a;
+    color: #555;
+  }
 
-.dark-toggle:hover {
-  transform: scale(1.1);
-}
-/* ===================== DARK MODE – MODALS & POPUPS (FINAL FIX) ===================== */
+  .dark .calendar-date-cell.is-selected {
+    background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+  }
+
+  /* Status badges */
+  .dark .status-badge.empty {
+    background: #0b0e1a;
+    color: #7a7fa8;
+  }
+
+  /* Toggle button */
+  .dark-toggle {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: 12px;
+    padding: 10px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: transform 0.2s ease;
+  }
+
+  .dark-toggle:hover {
+    transform: scale(1.1);
+  }
 
   /* Modal shells */
   .dark .modal-content,
@@ -1315,29 +1467,20 @@ const styles = `
     color: #eaeaf0;
   }
 
-  /* Status dialog text (Yippie / Warning popup) */
+  /* Status dialog text */
   .dark .dialog-message {
     color: #ffffff;
   }
-    /* ===================== DARK MODE – HEADER BUTTONS ===================== */
 
-.dark .header-button {
-  background: linear-gradient(
-    135deg,
-    #2e323c 0%,
-    #1b1e25 100%
-  );
-  color: #eaeaf0;
-}
+  /* Header buttons */
+  .dark .header-button {
+    background: linear-gradient(135deg, #2e323c 0%, #1b1e25 100%);
+    color: #eaeaf0;
+  }
 
-.dark .header-button:hover {
-  background: linear-gradient(
-    135deg,
-    #3a3f4b 0%,
-    #262a33 100%
-  );
-}
-
+  .dark .header-button:hover {
+    background: linear-gradient(135deg, #3a3f4b 0%, #262a33 100%);
+  }
 
   /* Buttons inside popups */
   .dark .modal-content .primary-button {
@@ -1357,8 +1500,6 @@ const styles = `
   .dark .close-button:hover {
     color: #ffffff;
   }
-
-
 
   /* ============================================================================
      TASKS PAGE
@@ -1381,10 +1522,11 @@ const styles = `
     font-weight: 700;
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   }
+  
   .greeting-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
   }
 
   .smart-greeting {
@@ -1399,16 +1541,15 @@ const styles = `
   }
 
   .greeting-with-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
 
-.inline-toggle {
-  margin-left: auto;
-}
-
+  .inline-toggle {
+    margin-left: auto;
+  }
 
   .main-content {
     flex: 1;
@@ -1557,64 +1698,31 @@ const styles = `
   }
   
   .dark .bottom-action {
-    background: linear-gradient(
-      to top,
-      #0f1220 85%,
-      rgba(15, 18, 32, 0)
-    );
+    background: linear-gradient(to top, #0f1220 85%, rgba(15, 18, 32, 0));
   }
-    .dark .tracker-button {
-  background: linear-gradient(
-    135deg,
-    #5a5f66 0%,
-    #2c2f34 100%
-  );
-  color: #f5f6f7;
-  box-shadow:
-    0 10px 30px rgba(0, 0, 0, 0.7),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  animation: trackerPulse 2.6s infinite;
-}
 
-.dark .tracker-button:hover {
-  background: linear-gradient(
-    135deg,
-    #6b7077 0%,
-    #3a3e44 100%
-  );
-}
-
-
-/* Dark mode fix for bottom tracker area */
-.dark .bottom-action {
-  background: linear-gradient(
-    to top,
-    #0f1220 85%,
-    rgba(15, 18, 32, 0.6),
-    transparent
-  );
-}
-
-  /* ===================== DARK MODE – TRACKER BUTTON PULSE ===================== */
-
-@keyframes trackerPulse {
-  0% {
-    box-shadow:
-      0 0 0 0 rgba(180, 180, 180, 0.45),
-      0 10px 30px rgba(0, 0, 0, 0.6);
+  .dark .tracker-button {
+    background: linear-gradient(135deg, #5a5f66 0%, #2c2f34 100%);
+    color: #f5f6f7;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    animation: trackerPulse 2.6s infinite;
   }
-  70% {
-    box-shadow:
-      0 0 0 14px rgba(180, 180, 180, 0),
-      0 10px 30px rgba(0, 0, 0, 0.6);
-  }
-  100% {
-    box-shadow:
-      0 0 0 0 rgba(180, 180, 180, 0),
-      0 10px 30px rgba(0, 0, 0, 0.6);
-  }
-}
 
+  .dark .tracker-button:hover {
+    background: linear-gradient(135deg, #6b7077 0%, #3a3e44 100%);
+  }
+
+  @keyframes trackerPulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(180, 180, 180, 0.45), 0 10px 30px rgba(0, 0, 0, 0.6);
+    }
+    70% {
+      box-shadow: 0 0 0 14px rgba(180, 180, 180, 0), 0 10px 30px rgba(0, 0, 0, 0.6);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(180, 180, 180, 0), 0 10px 30px rgba(0, 0, 0, 0.6);
+    }
+  }
 
   .tracker-button {
     width: 100%;
@@ -1803,12 +1911,19 @@ const styles = `
     gap: 16px;
   }
 
+  /* ============================================================================
+     PHASE 2.5: NEW TRACKER TASK CARD LAYOUT
+     ============================================================================ */
+
   .tracker-item {
     background: #ffffff;
     border: 2px solid #f0f0f8;
     border-radius: 16px;
-    padding: 20px;
+    padding: 16px;
     transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .tracker-item:hover {
@@ -1816,11 +1931,21 @@ const styles = `
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
   }
 
+  /* Line 1: Header with name + status */
+  .tracker-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
   .tracker-task-name {
     font-size: 18px;
     font-weight: 600;
     color: #1a1a2e;
-    margin-bottom: 12px;
+    margin: 0;
+    flex: 1;
+    min-width: 0;
   }
 
   .tracker-task-name.clickable {
@@ -1832,6 +1957,44 @@ const styles = `
     color: #667eea;
     transform: translateX(2px);
   }
+
+  .tracker-item-status {
+    flex-shrink: 0;
+  }
+
+  /* Line 2: Frequency meta (deadline will be added here in Phase 3) */
+  .tracker-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .task-frequency {
+    font-size: 13px;
+    color: #6b6b80;
+    font-weight: 500;
+  }
+
+  /* Line 3: Streak display */
+  .tracker-item-streak {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .streak-icon {
+    font-size: 16px;
+  }
+
+  .streak-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ff6b35;
+  }
+
+  /* ============================================================================
+     STATUS CONTROLS (ORIGINAL + COMPACT)
+     ============================================================================ */
 
   .status-select {
     width: 100%;
@@ -1856,12 +2019,46 @@ const styles = `
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
 
+  /* PHASE 2.5: Compact status dropdown */
+  .status-select-compact {
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    border: 2px solid #e0e0f0;
+    border-radius: 10px;
+    background: #ffffff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: 'DM Sans', sans-serif;
+    min-width: 100px;
+  }
+
+  .status-select-compact:hover:not(:disabled) {
+    border-color: #667eea;
+  }
+
+  .status-select-compact:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  }
+
+  .status-select-compact:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .status-display {
     width: 100%;
   }
 
   .status-display.editable {
     cursor: pointer;
+  }
+
+  /* PHASE 2.5: Compact status display */
+  .status-display-compact {
+    display: inline-block;
   }
 
   .status-badge {
@@ -1875,11 +2072,23 @@ const styles = `
     transition: all 0.2s ease;
   }
 
-  .status-badge.editable-badge {
+  /* PHASE 2.5: Compact status badge */
+  .status-badge-compact {
+    display: inline-block;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+  }
+
+  .status-badge.editable-badge,
+  .status-badge-compact.editable-badge {
     cursor: pointer;
   }
 
-  .status-badge.editable-badge:hover {
+  .status-badge.editable-badge:hover,
+  .status-badge-compact.editable-badge:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
   }
@@ -1890,17 +2099,20 @@ const styles = `
     opacity: 0.8;
   }
 
-  .status-badge.yes {
+  .status-badge.yes,
+  .status-badge-compact.yes {
     background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
     color: #ffffff;
   }
 
-  .status-badge.no {
+  .status-badge.no,
+  .status-badge-compact.no {
     background: linear-gradient(135deg, #f44336 0%, #ef5350 100%);
     color: #ffffff;
   }
 
-  .status-badge.partly {
+  .status-badge.partly,
+  .status-badge-compact.partly {
     background: linear-gradient(135deg, #ff9800 0%, #ffa726 100%);
     color: #ffffff;
   }
@@ -2325,4 +2537,4 @@ if (typeof document !== 'undefined') {
   const styleSheet = document.createElement('style');
   styleSheet.textContent = styles;
   document.head.appendChild(styleSheet);
-}
+};
