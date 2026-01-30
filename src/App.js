@@ -1,13 +1,12 @@
+// VERSION: 3.5 — Time Discipline Enforcement
+// Updated: 2026-01-30
+
 import React, { useState, useEffect } from 'react';
 import { Calendar, Home, Plus, X, Trash2 } from 'lucide-react';
-import { initPushNotifications, triggerDailyNotificationCheck } from './PushNotifications';
+import { initPushNotifications, triggerDailyNotificationCheck, cancelTimeBasedNotifications } from './PushNotifications';
 import { Capacitor } from '@capacitor/core';
 console.log('📱 Platform:', Capacitor.getPlatform());
 console.log('📱 Is native:', Capacitor.isNativePlatform());
-
-// VERSION: 2.5.1 - TOUCH/SWIPE POLISH PATCH
-// Updated: 2026-01-30
-// Fix: Prevent date changes when modals are open
 
 // ============================================================================
 // SAFE STORAGE POLYFILL (REQUIRED)
@@ -341,8 +340,13 @@ export default function TaskTrackerApp() {
   const [newTask, setNewTask] = useState({
     name: '',
     startDate: getTodayString(),
-    frequency: 'Daily'
+    frequency: 'Daily',
+    isTimeBased: false,      // PHASE 3: Time-based task toggle
+    targetTime: null         // PHASE 3: Target time in HH:MM format
   });
+
+  // PHASE 3.5: Time validation error
+  const [timeValidationError, setTimeValidationError] = useState('');
 
   // ============================================================================
   // TOUCH/SWIPE HANDLERS (for date navigation)
@@ -545,6 +549,7 @@ export default function TaskTrackerApp() {
   /**
    * Handles adding a new task
    * Validates for duplicates and creates task object
+   * PHASE 3.5: Enforces time selection for time-based tasks
    */
   const handleAddTask = async () => {
     if (newTask.name.trim()) {
@@ -559,13 +564,21 @@ export default function TaskTrackerApp() {
         setDuplicateError('A task with this name already exists!');
         return;
       }
+
+      // PHASE 3.5: Enforce time selection for time-based tasks
+      if (newTask.isTimeBased && !newTask.targetTime) {
+        setTimeValidationError('Please select a target time');
+        return;
+      }
       
       const task = {
         id: Date.now().toString(),
         name: titleCaseName,
         startDate: newTask.startDate,
         frequency: newTask.frequency,
-        endDate: null
+        endDate: null,
+        isTimeBased: newTask.isTimeBased,      // PHASE 3: Time-based flag
+        targetTime: newTask.targetTime         // PHASE 3: Target time
       };
       
       const updatedTasks = [...tasks, task];
@@ -575,9 +588,12 @@ export default function TaskTrackerApp() {
       setNewTask({
         name: '',
         startDate: getTodayString(),
-        frequency: 'Daily'
+        frequency: 'Daily',
+        isTimeBased: false,       // PHASE 3: Reset time-based flag
+        targetTime: null          // PHASE 3: Reset target time
       });
       setDuplicateError('');
+      setTimeValidationError(''); // PHASE 3.5: Clear time error
       setShowAddTask(false);
     }
   };
@@ -614,6 +630,7 @@ export default function TaskTrackerApp() {
    * Handles status change for a task (Yes/No/Partly)
    * Always uses today's date (regardless of selected date in tracker)
    * Shows motivational dialog based on status
+   * PHASE 3.5: Cancels time-based notifications when task completed
    * 
    * @param {string} taskId - Task ID
    * @param {string} date - Date (not used, always uses today)
@@ -632,6 +649,11 @@ export default function TaskTrackerApp() {
     
     setTaskStatuses(updatedStatuses);
     saveTaskStatuses(updatedStatuses);
+
+    // PHASE 3.5: Cancel time-based notifications if task completed
+    if (status === 'Yes') {
+      await cancelTimeBasedNotifications(taskId, tasks);
+    }
     
     // Show dialog immediately for faster response
     let message = '';
@@ -726,7 +748,10 @@ export default function TaskTrackerApp() {
           <div className="section-header">
             <h3 className="section-title">Your Tasks</h3>
             <button 
-              onClick={() => setShowAddTask(true)}
+              onClick={() => {
+                setShowAddTask(true);
+                setTimeValidationError(''); // PHASE 3.5: Clear error when opening
+              }}
               className="add-task-button"
             >
               <Plus size={20} />
@@ -804,6 +829,7 @@ export default function TaskTrackerApp() {
           <div className="modal-overlay" onClick={() => {
             setShowAddTask(false);
             setDuplicateError('');
+            setTimeValidationError(''); // PHASE 3.5: Clear time error
           }}>
             {/* PATCH: Stop event propagation on modal content */}
             <div 
@@ -811,12 +837,14 @@ export default function TaskTrackerApp() {
               onClick={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()} // PHASE 3.5: Extra touch safety
             >
               <div className="modal-header">
                 <h3>Add New Task</h3>
                 <button onClick={() => {
                   setShowAddTask(false);
                   setDuplicateError('');
+                  setTimeValidationError(''); // PHASE 3.5: Clear time error
                 }} className="close-button">
                   <X size={24} />
                 </button>
@@ -861,18 +889,64 @@ export default function TaskTrackerApp() {
                     <option value="Monthly">Monthly</option>
                   </select>
                 </div>
+                
+                {/* PHASE 3: Time-based task toggle */}
+                <div className="form-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={newTask.isTimeBased}
+                      onChange={(e) => {
+                        setNewTask({ 
+                          ...newTask, 
+                          isTimeBased: e.target.checked,
+                          targetTime: e.target.checked ? newTask.targetTime : null
+                        });
+                        setTimeValidationError(''); // PHASE 3.5: Clear error
+                      }}
+                      className="form-checkbox"
+                    />
+                    <span>Time-based task?</span>
+                  </label>
+                </div>
+                
+                {/* PHASE 3: Time picker (conditional) */}
+                {newTask.isTimeBased && (
+                  <div className="form-group">
+                    <label>Target Time</label>
+                    <input
+                      type="time"
+                      value={newTask.targetTime || ''}
+                      onChange={(e) => {
+                        setNewTask({ ...newTask, targetTime: e.target.value });
+                        setTimeValidationError(''); // PHASE 3.5: Clear error
+                      }}
+                      className="form-input"
+                    />
+                    {/* PHASE 3.5: Validation error display */}
+                    {timeValidationError && (
+                      <span className="error-text">{timeValidationError}</span>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="modal-footer">
+              <div className="modal-buttons">
                 <button onClick={() => {
                   setShowAddTask(false);
                   setDuplicateError('');
-                }} className="secondary-button">
-                  Cancel
-                </button>
+                  setTimeValidationError(''); // PHASE 3.5: Clear time error
+                  setNewTask({
+                    name: '',
+                    startDate: getTodayString(),
+                    frequency: 'Daily',
+                    isTimeBased: false,
+                    targetTime: null
+                  });
+                }} className="btn-secondary">Cancel</button>
                 <button 
                   onClick={handleAddTask} 
-                  className="primary-button"
-                  disabled={!newTask.name.trim()}
+                  className="btn-primary"
+                  disabled={newTask.isTimeBased && !newTask.targetTime} // PHASE 3.5: Disable if time required
                 >
                   Add Task
                 </button>
@@ -890,6 +964,7 @@ export default function TaskTrackerApp() {
               onClick={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()} // PHASE 3.5: Extra touch safety
             >
               <div className="modal-header">
                 <h3>End Task</h3>
@@ -929,6 +1004,7 @@ export default function TaskTrackerApp() {
               onClick={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()} // PHASE 3.5: Extra touch safety
             >
               <div className="modal-header">
                 <h3>{selectedTaskForStreak.name}</h3>
@@ -1061,8 +1137,8 @@ export default function TaskTrackerApp() {
           </button>
         </header>
 
-        {/* VERSION INDICATOR - v2.5.1 TOUCH/SWIPE PATCH */}
-        <div style={{display: 'none'}}>v2.5.1</div>
+        {/* VERSION INDICATOR - v3.5 TIME DISCIPLINE ENFORCEMENT */}
+        <div style={{display: 'none'}}>v3.5</div>
 
         {/* Inline Calendar Grid */}
         {showCalendar && (
@@ -1137,6 +1213,8 @@ export default function TaskTrackerApp() {
                               setEditingPartlyTask(null);
                             }}
                             onBlur={() => setEditingPartlyTask(null)}
+                            onClick={(e) => e.stopPropagation()} // PHASE 3.5: Touch safety
+                            onTouchStart={(e) => e.stopPropagation()} // PHASE 3.5: Touch safety
                             className="status-select-compact"
                             autoFocus={editingPartlyTask === task.id}
                             disabled={isFuture}
@@ -1164,10 +1242,20 @@ export default function TaskTrackerApp() {
                       </div>
                     </div>
                     
-                    {/* PHASE 2.5: Line 2 - Frequency (deadline will be added here in Phase 3) */}
+                    {/* PHASE 2.5: Line 2 - Frequency + PHASE 3: Target Time */}
                     <div className="tracker-item-meta">
                       <span className="task-frequency">{task.frequency}</span>
-                      {/* PHASE 3 PLACEHOLDER: {task.deadline && <span className="task-time"> · before {task.deadline}</span>} */}
+                      {/* PHASE 3: Display target time if time-based */}
+                      {task.isTimeBased && task.targetTime && (
+                        <span className="task-time">
+                          {' • '}
+                          {new Date(`2000-01-01T${task.targetTime}`).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}
+                        </span>
+                      )}
                     </div>
                     
                     {/* PHASE 2.5: Line 3 - Streak display */}
@@ -1191,6 +1279,7 @@ export default function TaskTrackerApp() {
               onClick={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()} // PHASE 3.5: Extra touch safety
             >
               <p className="dialog-message">{statusDialogMessage}</p>
               <button 
@@ -1215,7 +1304,7 @@ export default function TaskTrackerApp() {
 }
 
 // ============================================================================
-// STYLES (UNCHANGED)
+// STYLES
 // ============================================================================
 
 const styles = `
@@ -1375,6 +1464,11 @@ const styles = `
     background: #10132a;
     border-color: #2a2f55;
     color: #ffffff;
+  }
+
+  /* PHASE 3.5: Dark mode for error text */
+  .dark .error-text {
+    color: #fca5a5;
   }
 
   /* Inputs */
@@ -1975,6 +2069,43 @@ const styles = `
     font-weight: 500;
   }
 
+  /* PHASE 3: Target time display */
+  .task-time {
+    font-size: 13px;
+    color: #667eea;
+    font-weight: 600;
+  }
+
+  /* PHASE 3: Checkbox label styling */
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .form-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #667eea;
+  }
+
+  /* PHASE 3.5: Validation error text */
+  .error-text {
+    display: block;
+    color: #ef4444;
+    font-size: 13px;
+    margin-top: 6px;
+    font-weight: 500;
+  }
+
+  /* Dark mode for PHASE 3 elements */
+  .dark .task-time {
+    color: #8b9dff;
+  }
+
   /* Line 3: Streak display */
   .tracker-item-streak {
     display: flex;
@@ -2272,6 +2403,61 @@ const styles = `
     padding: 16px 24px 24px;
   }
 
+  .modal-buttons {
+    display: flex;
+    gap: 12px;
+    padding: 16px 24px 24px;
+  }
+
+  .btn-primary {
+    flex: 1;
+    padding: 14px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #ffffff;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(102, 126, 234, 0.3);
+  }
+
+  /* PHASE 3.5: Disabled button state */
+  .btn-primary:disabled {
+    background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .btn-primary:disabled:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .btn-secondary {
+    flex: 1;
+    padding: 14px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #6b6b80;
+    background: #f0f0f8;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .btn-secondary:hover {
+    background: #e0e0f0;
+  }
+
   .primary-button {
     flex: 1;
     padding: 14px 24px;
@@ -2537,4 +2723,4 @@ if (typeof document !== 'undefined') {
   const styleSheet = document.createElement('style');
   styleSheet.textContent = styles;
   document.head.appendChild(styleSheet);
-};
+}
