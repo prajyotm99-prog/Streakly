@@ -1,5 +1,5 @@
-// VERSION: 3.6 — Stability, Performance & Notification Reliability
-// Updated: 2026-01-31
+// VERSION: 3.7 — Streak Consistency, Notification Reliability, Performance
+// Updated: 2026-02-01
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Calendar, Home, Plus, X, Trash2 } from 'lucide-react';
@@ -145,15 +145,19 @@ const getGreetingByTime = () => {
 // ============================================================================
 
 /**
- * v3.6 FIX: Calculates the current streak for a task
- * NOW correctly initializes from historical data
- * Counts backwards from today, including only days where:
- * 1. Task was scheduled (based on frequency)
- * 2. Task was completed (status === 'Yes')
- * Streak breaks on first incomplete scheduled day
+ * v3.7 FIX: SINGLE SOURCE OF TRUTH for streak calculation
+ * This function is the ONLY place streaks are calculated
+ * Used by: Tracker cards, Streak modal, anywhere streaks display
+ * 
+ * Algorithm:
+ * 1. Start from YESTERDAY (not today)
+ * 2. Walk backwards through history
+ * 3. Count only days where task was scheduled AND completed
+ * 4. Stop at first scheduled day that was NOT completed
+ * 5. Today doesn't count toward streak until marked "Yes"
  * 
  * @param {object} task - Task object
- * @param {object} taskStatuses - Object containing all task completion statuses
+ * @param {object} taskStatuses - All completion statuses
  * @returns {number} - Current streak count
  */
 const calculateCurrentStreak = (task, taskStatuses) => {
@@ -162,36 +166,42 @@ const calculateCurrentStreak = (task, taskStatuses) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  let streak = 0;
-  let checkDate = new Date();
-  checkDate.setHours(0, 0, 0, 0);
-  let consecutiveValidDays = true;
+  // Start from YESTERDAY, not today
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
   
-  // Start from today and count backwards
-  while (consecutiveValidDays) {
+  let streak = 0;
+  let checkDate = new Date(yesterday);
+  
+  // Walk backwards from yesterday, max 365 days
+  for (let i = 0; i < 365; i++) {
     const dateString = checkDate.toLocaleDateString('en-CA');
-    const statusKey = `${task.id}_${dateString}`;
-    const status = taskStatuses[statusKey];
-    const isValid = isTaskValidForDate(task, dateString);
+    const isScheduled = isTaskValidForDate(task, dateString);
     
-    if (isValid) {
-      // This is a day when the task was scheduled
+    if (isScheduled) {
+      const statusKey = `${task.id}_${dateString}`;
+      const status = taskStatuses[statusKey];
+      
       if (status === 'Yes') {
         streak++;
-        checkDate.setDate(checkDate.getDate() - 1);
       } else {
         // Task was scheduled but not completed - streak breaks
-        consecutiveValidDays = false;
+        break;
       }
-    } else {
-      // Task was not scheduled on this day - skip it
-      checkDate.setDate(checkDate.getDate() - 1);
     }
     
-    // Safety check: don't go back more than 365 days
-    const daysDiff = Math.floor((today - checkDate) / (1000 * 60 * 60 * 24));
-    if (daysDiff > 365) {
-      break;
+    // Move to previous day
+    checkDate.setDate(checkDate.getDate() - 1);
+  }
+  
+  // Add today's completion if marked as "Yes"
+  const todayString = today.toLocaleDateString('en-CA');
+  if (isTaskValidForDate(task, todayString)) {
+    const todayStatusKey = `${task.id}_${todayString}`;
+    const todayStatus = taskStatuses[todayStatusKey];
+    
+    if (todayStatus === 'Yes') {
+      streak++;
     }
   }
   
@@ -199,12 +209,14 @@ const calculateCurrentStreak = (task, taskStatuses) => {
 };
 
 /**
- * Gets last 30 days of data for a task (used in streak calendar modal)
+ * v3.7 SIMPLIFIED: Generate 30-day calendar data for heatmap
+ * Does NOT calculate streak - uses calculateCurrentStreak() instead
+ * 
  * @param {string} taskId - Task ID
- * @param {object} taskStatuses - All task statuses
+ * @param {object} taskStatuses - All completion statuses
  * @param {object} task - Task object
  * @param {string} appInstallDate - App installation date
- * @returns {array} - Array of day objects with status and validity info
+ * @returns {array} - Array of day objects with status info
  */
 const getLast30DaysData = (taskId, taskStatuses, task, appInstallDate) => {
   const daysData = [];
@@ -214,6 +226,7 @@ const getLast30DaysData = (taskId, taskStatuses, task, appInstallDate) => {
   const installDate = appInstallDate ? new Date(appInstallDate) : new Date(today);
   installDate.setHours(0, 0, 0, 0);
   
+  // Generate 30 days backwards from today
   for (let i = 29; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
@@ -221,11 +234,7 @@ const getLast30DaysData = (taskId, taskStatuses, task, appInstallDate) => {
     
     const statusKey = `${taskId}_${dateString}`;
     const status = taskStatuses[statusKey] || null;
-    
-    // Check if task was valid on this date
     const isValidDate = task ? isTaskValidForDate(task, dateString) : false;
-    
-    // Check if date is before app installation
     const isBeforeInstall = date < installDate;
     
     daysData.push({
@@ -337,7 +346,7 @@ export default function TaskTrackerApp() {
   const [timeValidationError, setTimeValidationError] = useState('');
 
   // ============================================================================
-  // v3.6 PERFORMANCE: Memoized computed values
+  // v3.7 PERFORMANCE: Memoized computed values
   // ============================================================================
   
   /**
@@ -347,6 +356,33 @@ export default function TaskTrackerApp() {
   const tasksForSelectedDate = useMemo(() => {
     return tasks.filter(task => isTaskValidForDate(task, selectedDate));
   }, [tasks, selectedDate]);
+
+  /**
+   * v3.7 OPTIMIZATION: Memoize streak calculations for all visible tasks
+   * Prevents recalculation on every render
+   */
+  const taskStreaks = useMemo(() => {
+    const streaks = {};
+    tasksForSelectedDate.forEach(task => {
+      streaks[task.id] = calculateCurrentStreak(task, taskStatuses);
+    });
+    return streaks;
+  }, [tasksForSelectedDate, taskStatuses]);
+
+  /**
+   * v3.7 OPTIMIZATION: Memoize completion counts
+   */
+  const { completedTasksCount, totalTasksCount } = useMemo(() => {
+    const completed = tasksForSelectedDate.filter(task => {
+      const statusKey = `${task.id}_${selectedDate}`;
+      return taskStatuses[statusKey] === 'Yes';
+    }).length;
+    
+    return {
+      completedTasksCount: completed,
+      totalTasksCount: tasksForSelectedDate.length
+    };
+  }, [tasksForSelectedDate, taskStatuses, selectedDate]);
 
   /**
    * v3.6 OPTIMIZATION: Memoize active tasks
@@ -506,12 +542,26 @@ export default function TaskTrackerApp() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [page]);
 
-  // Schedule notifications when tasks or statuses change
+  /**
+   * v3.7 FIX: Schedule notifications ONCE per day at app start
+   * Also re-schedule when day changes
+   */
   useEffect(() => {
-    if (tasks.length > 0) {
-      triggerDailyNotificationCheck(tasks, taskStatuses);
-    }
-  }, [tasks, taskStatuses]);
+    if (tasks.length === 0) return;
+    
+    // Schedule immediately on mount
+    triggerDailyNotificationCheck(tasks, taskStatuses);
+    
+    // Re-schedule at midnight when date changes
+    const checkMidnight = setInterval(() => {
+      const now = new Date();
+      if (now.getHours() === 0 && now.getMinutes() === 0) {
+        triggerDailyNotificationCheck(tasks, taskStatuses);
+      }
+    }, 60000); // Check every minute
+    
+    return () => clearInterval(checkMidnight);
+  }, [tasks.length]); // Only depend on tasks.length, not tasks or taskStatuses
 
   // ============================================================================
   // STORAGE HELPERS
@@ -1032,16 +1082,10 @@ export default function TaskTrackerApp() {
 
   // ============================================================================
   // RENDER: TRACKER PAGE
-  // v3.6: Optimized with memoization
+  // v3.7: Optimized with memoization
   // ============================================================================
 
   if (page === 'tracker') {
-    const completedTasksCount = tasksForSelectedDate.filter(task => {
-      const statusKey = `${task.id}_${selectedDate}`;
-      return taskStatuses[statusKey] === 'Yes';
-    }).length;
-    const totalTasksCount = tasksForSelectedDate.length;
-
     const generateCalendarDates = () => {
       const current = new Date(selectedDate);
       const year = current.getFullYear();
@@ -1111,8 +1155,8 @@ export default function TaskTrackerApp() {
           </button>
         </header>
 
-        {/* VERSION INDICATOR - v3.6 */}
-        <div style={{display: 'none'}}>v3.6</div>
+        {/* VERSION INDICATOR - v3.7 */}
+        <div style={{display: 'none'}}>v3.7</div>
 
         {showCalendar && (
           <div className="inline-calendar">
@@ -1164,7 +1208,6 @@ export default function TaskTrackerApp() {
               tasksForSelectedDate.map(task => {
                 const statusKey = `${task.id}_${selectedDate}`;
                 const currentStatus = taskStatuses[statusKey] || '';
-                const isFuture = new Date(selectedDate) > new Date(getTodayString());
                 
                 // v3.6 FIX: Disable dropdown for non-today dates
                 const canEdit = isSelectedDateToday;
@@ -1233,7 +1276,7 @@ export default function TaskTrackerApp() {
                     
                     <div className="tracker-item-streak">
                       <span className="streak-icon">🔥</span>
-                      <span className="streak-text">Streak: {calculateCurrentStreak(task, taskStatuses)} days</span>
+                      <span className="streak-text">Streak: {taskStreaks[task.id] || 0} days</span>
                     </div>
                   </div>
                 );
@@ -1274,7 +1317,7 @@ export default function TaskTrackerApp() {
 }
 
 // ============================================================================
-// STYLES (UNCHANGED)
+// STYLES (UNCHANGED FROM v3.6)
 // ============================================================================
 
 const styles = `

@@ -4,22 +4,23 @@ import { Capacitor } from '@capacitor/core';
 /**
  * ============================================================================
  * PUSH NOTIFICATIONS – STREAKLY (Discipline Companion)
- * v3.6 — Stability, Performance & Notification Reliability
+ * v3.7 — Streak Consistency, Notification Reliability, Performance
  * ============================================================================
  *
  * This file handles:
  * 1. Permission initialization
  * 2. Message generation (pure logic)
  * 3. Task statistics calculation
- * 4. De-duplication guard
+ * 4. De-duplication guard (v3.7: improved)
  * 5. Centralized daily notification orchestration
  * 6. Time-based task notifications (Phase 3)
+ * 7. Daily flag cleanup (v3.7: new)
  *
- * v3.6 FIXES:
- * - Prevented time-based notifications from firing on app open
- * - Hardened all notification scheduling for app states (open/background/killed)
- * - Added proper time validation guards
- * - Improved notification icon configuration
+ * v3.7 FIXES:
+ * - Improved de-duplication (allows re-scheduling with time window)
+ * - Added timestamp tracking to prevent rapid re-scheduling
+ * - Added daily cleanup of old notification flags
+ * - Better logging for debugging
  * ============================================================================
  */
 
@@ -240,20 +241,34 @@ const calculateTaskStats = (tasks, taskStatuses, dateString) => {
 
 /* ============================================================================
  * DE-DUPLICATION GUARDS
+ * v3.7: IMPROVED with time-based window
  * ============================================================================ */
 
 const hasUserActuallyStarted = (tasks) => {
   return Array.isArray(tasks) && tasks.length > 0;
 };
 
+/**
+ * v3.7 FIX: Improved de-duplication
+ * Allows re-scheduling if we cross into a new day
+ * Also prevents rapid re-scheduling (1 hour window)
+ */
 const shouldScheduleToday = async () => {
   try {
     const stored = await window.storage.get('lastScheduledDate');
     const today = new Date().toLocaleDateString('en-CA');
 
     if (stored && stored.value === today) {
-      console.log('⏭️ Notifications already scheduled for today');
-      return false;
+      // Already scheduled for today - check if recent
+      const storedTime = await window.storage.get('lastScheduledTime');
+      if (storedTime) {
+        const timeSinceSchedule = Date.now() - parseInt(storedTime.value);
+        // If scheduled less than 1 hour ago, skip
+        if (timeSinceSchedule < 3600000) {
+          console.log('⏭️ Notifications scheduled recently, skipping');
+          return false;
+        }
+      }
     }
 
     return true;
@@ -263,13 +278,41 @@ const shouldScheduleToday = async () => {
   }
 };
 
+/**
+ * v3.7 FIX: Track both date and timestamp
+ */
 const markAsScheduledToday = async () => {
   try {
     const today = new Date().toLocaleDateString('en-CA');
+    const now = Date.now().toString();
     await window.storage.set('lastScheduledDate', today);
-    console.log('✅ Notifications marked as scheduled for', today);
+    await window.storage.set('lastScheduledTime', now);
+    console.log('✅ Notifications marked as scheduled for', today, 'at', new Date().toLocaleTimeString());
   } catch (error) {
     console.error('❌ Failed to mark scheduled date:', error);
+  }
+};
+
+/**
+ * v3.7 NEW: Clear time-based notification flags for new day
+ * Call this when day changes to allow re-scheduling
+ */
+const clearOldNotificationFlags = async (tasks) => {
+  const today = new Date().toLocaleDateString('en-CA');
+  const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+  
+  try {
+    for (const task of tasks) {
+      if (task.isTimeBased && task.targetTime) {
+        const oldScheduleFlag = `timeTaskScheduled_${task.id}_${yesterday}`;
+        const oldGraceFlag = `graceScheduled_${task.id}_${yesterday}`;
+        await window.storage.remove(oldScheduleFlag);
+        await window.storage.remove(oldGraceFlag);
+      }
+    }
+    console.log('🧹 Cleared notification flags for yesterday');
+  } catch (error) {
+    console.error('❌ Failed to clear old flags:', error);
   }
 };
 
@@ -327,7 +370,7 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
       largeBody: morningMsg.largeBody,
       schedule: { at: morningTime },
       sound: 'default',
-      smallIcon: 'ic_notification', // v3.6: Use notification icon
+      smallIcon: 'ic_notification',
       iconColor: '#667eea'
     });
 
@@ -345,7 +388,7 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
       body: nightMsg.body,
       schedule: { at: nightTime },
       sound: 'default',
-      smallIcon: 'ic_notification', // v3.6: Use notification icon
+      smallIcon: 'ic_notification',
       iconColor: '#667eea'
     });
 
@@ -364,7 +407,7 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
         body: warnMsg.body,
         schedule: { at: warnTime },
         sound: 'default',
-        smallIcon: 'ic_notification', // v3.6: Use notification icon
+        smallIcon: 'ic_notification',
         iconColor: '#ff6b35'
       });
     }
@@ -448,7 +491,7 @@ const scheduleTimeBasedNotifications = async (tasks, taskStatuses) => {
           body: 'Have you completed it?',
           schedule: { at: scheduleTime },
           sound: 'default',
-          smallIcon: 'ic_notification', // v3.6: Use notification icon
+          smallIcon: 'ic_notification',
           iconColor: '#667eea'
         }]
       });
@@ -466,7 +509,7 @@ const scheduleTimeBasedNotifications = async (tasks, taskStatuses) => {
             body: 'Just 30 mins can save your streak.',
             schedule: { at: graceTime },
             sound: 'default',
-            smallIcon: 'ic_notification', // v3.6: Use notification icon
+            smallIcon: 'ic_notification',
             iconColor: '#ff6b35'
           }]
         });
@@ -523,7 +566,7 @@ const cancelTimeBasedNotifications = async (taskId, tasks) => {
 
 /* ============================================================================
  * PUBLIC TRIGGER
- * v3.6: Enhanced reliability
+ * v3.7: Enhanced with flag cleanup
  * ============================================================================ */
 
 export const triggerDailyNotificationCheck = async (tasks, taskStatuses) => {
@@ -534,6 +577,9 @@ export const triggerDailyNotificationCheck = async (tasks, taskStatuses) => {
     return;
   }
 
+  // v3.7 NEW: Clear old flags before scheduling
+  await clearOldNotificationFlags(tasks);
+  
   await scheduleDailyNotifications(tasks, taskStatuses);
   await scheduleTimeBasedNotifications(tasks, taskStatuses);
 };
