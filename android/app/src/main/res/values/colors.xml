@@ -7,6 +7,6 @@
     <color name="colorAccent">#FFC27A</color>
 
     <!-- Notification accent color (VERY IMPORTANT) -->
-    <color name="notification_color">#FF8A3D</color>
+    <color name="notification_color">#667eea</color>
 
 </resources>
