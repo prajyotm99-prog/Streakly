@@ -1,6 +1,6 @@
 {
-  "appId": "com.prajyot.tasktracker",
-  "appName": "Task Tracker",
+  "appId": "com.prajyot.streakly",
+  "appName": "Streakly",
   "webDir": "build",
   "android": {
     "compileSdkVersion": 36,

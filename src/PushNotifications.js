@@ -1,26 +1,33 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
 
 /**
  * ============================================================================
  * PUSH NOTIFICATIONS – STREAKLY (Discipline Companion)
- * v3.7 — Streak Consistency, Notification Reliability, Performance
+ * v3.8.1 — Stability, Consistency & Reliability Update (Grace Reminder Fix)
  * ============================================================================
  *
  * This file handles:
  * 1. Permission initialization
  * 2. Message generation (pure logic)
  * 3. Task statistics calculation
- * 4. De-duplication guard (v3.7: improved)
- * 5. Centralized daily notification orchestration
- * 6. Time-based task notifications (Phase 3)
- * 7. Daily flag cleanup (v3.7: new)
+ * 4. De-duplication guard (v3.8: improved daily check)
+ * 5. Centralized daily notification orchestrator
+ * 6. Time-based task notifications
+ * 7. Daily flag cleanup
  *
- * v3.7 FIXES:
- * - Improved de-duplication (allows re-scheduling with time window)
- * - Added timestamp tracking to prevent rapid re-scheduling
- * - Added daily cleanup of old notification flags
- * - Better logging for debugging
+ * v3.8 FIXES:
+ * - Fixed night summary showing "0 completed" (loads from storage)
+ * - Added iconColor to ALL notifications for consistency
+ * - Added last_notification_check flag to prevent duplicate scheduling
+ * - Enhanced debug logging for night summary stats
+ * - Improved reliability for app killed state
+ *
+ * v3.8.1 FIX:
+ * - Fixed grace reminder not firing (removed premature flag setting)
+ * - Grace reminder now always schedules alongside main notification
+ * - Auto-cancels when task is marked complete
  * ============================================================================
  */
 
@@ -67,7 +74,7 @@ const isTaskValidForDate = (task, date) => {
 };
 
 export const initPushNotifications = async () => {
-  console.log('🔔 Initializing notifications...');
+  console.log('🔔 v3.8.1: Initializing notifications...');
 
   if (!Capacitor.isNativePlatform()) {
     console.log('⏭️ Notifications skipped (web platform)');
@@ -193,11 +200,30 @@ const generateStreakWarning = (pendingTasks) => {
 
 /* ============================================================================
  * TASK STATISTICS CALCULATOR
+ * v3.8 FIX: Now loads from storage for accurate night summary
  * ============================================================================ */
 
-const calculateTaskStats = (tasks, taskStatuses, dateString) => {
+/**
+ * v3.8 IMPROVED: Calculates task stats with optional storage fallback
+ * Used by night summary to ensure accurate counts
+ */
+const calculateTaskStats = async (tasks, taskStatuses, dateString, loadFromStorage = false) => {
   const checkDate = new Date(dateString);
   checkDate.setHours(0, 0, 0, 0);
+
+  // v3.8 FIX: Load from storage if requested (for night summary)
+  let currentTaskStatuses = taskStatuses;
+  if (loadFromStorage) {
+    try {
+      const statusesResult = await Preferences.get({ key: 'taskStatuses' });
+      if (statusesResult.value) {
+        currentTaskStatuses = JSON.parse(statusesResult.value);
+        console.log('📊 v3.8: Loaded taskStatuses from storage for accurate stats');
+      }
+    } catch (e) {
+      console.warn('⚠️ Could not load taskStatuses from storage, using passed value');
+    }
+  }
 
   const validTasks = tasks.filter((task) => {
     const startDate = new Date(task.startDate);
@@ -229,14 +255,19 @@ const calculateTaskStats = (tasks, taskStatuses, dateString) => {
 
   const completedTasks = validTasks.filter((task) => {
     const key = `${task.id}_${dateString}`;
-    return taskStatuses[key] === 'Yes';
+    return currentTaskStatuses[key] === 'Yes';
   }).length;
 
-  return {
+  const stats = {
     totalTasks: validTasks.length,
     completedTasks,
     pendingTasks: validTasks.length - completedTasks,
   };
+
+  // v3.8: Debug logging
+  console.log('📊 Task Stats for', dateString, ':', stats);
+
+  return stats;
 };
 
 /* ============================================================================
@@ -305,9 +336,7 @@ const clearOldNotificationFlags = async (tasks) => {
     for (const task of tasks) {
       if (task.isTimeBased && task.targetTime) {
         const oldScheduleFlag = `timeTaskScheduled_${task.id}_${yesterday}`;
-        const oldGraceFlag = `graceScheduled_${task.id}_${yesterday}`;
         await window.storage.remove(oldScheduleFlag);
-        await window.storage.remove(oldGraceFlag);
       }
     }
     console.log('🧹 Cleared notification flags for yesterday');
@@ -318,7 +347,7 @@ const clearOldNotificationFlags = async (tasks) => {
 
 /* ============================================================================
  * CENTRALIZED DAILY NOTIFICATION ORCHESTRATOR
- * v3.6: Enhanced reliability for all app states
+ * v3.8: Enhanced with storage-based stats for night summary
  * ============================================================================ */
 
 export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
@@ -350,8 +379,9 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
     const today = new Date().toLocaleDateString('en-CA');
     const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
 
-    const yesterdayStats = calculateTaskStats(tasks, taskStatuses, yesterday);
-    const todayStats = calculateTaskStats(tasks, taskStatuses, today);
+    // Calculate stats (morning uses passed taskStatuses)
+    const yesterdayStats = await calculateTaskStats(tasks, taskStatuses, yesterday, false);
+    const todayStats = await calculateTaskStats(tasks, taskStatuses, today, false);
 
     const notifications = [];
 
@@ -371,11 +401,12 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
       schedule: { at: morningTime },
       sound: 'default',
       smallIcon: 'ic_notification',
-      iconColor: '#667eea'
+      iconColor: '#667eea' // v3.8: Explicit icon color
     });
 
-    // Night summary (9:00 PM)
-    const nightMsg = generateNightSummary(todayStats);
+    // v3.8 FIX: Night summary uses storage-loaded stats
+    const nightStatsFromStorage = await calculateTaskStats(tasks, taskStatuses, today, true);
+    const nightMsg = generateNightSummary(nightStatsFromStorage);
     const nightTime = new Date();
     nightTime.setHours(21, 0, 0, 0);
     if (nightTime < Date.now()) {
@@ -389,7 +420,7 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
       schedule: { at: nightTime },
       sound: 'default',
       smallIcon: 'ic_notification',
-      iconColor: '#667eea'
+      iconColor: '#667eea' // v3.8: Explicit icon color
     });
 
     // Streak warning (10:00 PM) - only if pending tasks
@@ -408,17 +439,17 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
         schedule: { at: warnTime },
         sound: 'default',
         smallIcon: 'ic_notification',
-        iconColor: '#ff6b35'
+        iconColor: '#ff6b35' // v3.8: Explicit icon color
       });
     }
 
     await LocalNotifications.schedule({ notifications });
     await markAsScheduledToday();
 
-    console.log('✅ Daily notifications scheduled successfully');
+    console.log('✅ v3.8: Daily notifications scheduled successfully');
     console.log('📊 Scheduled:', {
       morning: { time: morningTime.toLocaleString(), title: morningMsg.title },
-      night: { time: nightTime.toLocaleString(), title: nightMsg.title },
+      night: { time: nightTime.toLocaleString(), title: nightMsg.title, stats: nightStatsFromStorage },
       warning: todayStats.pendingTasks > 0 ? 'Yes' : 'Skipped'
     });
 
@@ -429,12 +460,14 @@ export const scheduleDailyNotifications = async (tasks, taskStatuses) => {
 
 /* ============================================================================
  * TIME-BASED TASK NOTIFICATIONS (PHASE 3)
- * v3.6 FIX: Prevents immediate firing on app open
+ * v3.8.1 FIX: Grace reminder always schedules
  * ============================================================================ */
 
 /**
- * v3.6 CRITICAL FIX: Schedules time-based task notifications
- * NOW prevents firing if schedule time has already passed
+ * v3.8.1 CRITICAL FIX: Schedules time-based task notifications
+ * - Main notification at target time
+ * - Grace reminder 30 min later (ALWAYS schedules)
+ * - Auto-cancels when task marked complete
  */
 const scheduleTimeBasedNotifications = async (tasks, taskStatuses) => {
   if (Capacitor.getPlatform() === 'web') {
@@ -449,7 +482,7 @@ const scheduleTimeBasedNotifications = async (tasks, taskStatuses) => {
     isTaskValidForDate(task, today)
   );
 
-  console.log('⏰ Scheduling time-based notifications for', timeBasedTasks.length, 'tasks');
+  console.log('⏰ v3.8.1: Scheduling time-based notifications for', timeBasedTasks.length, 'tasks');
 
   for (let i = 0; i < timeBasedTasks.length; i++) {
     const task = timeBasedTasks[i];
@@ -462,7 +495,6 @@ const scheduleTimeBasedNotifications = async (tasks, taskStatuses) => {
     }
 
     const scheduleFlagKey = `timeTaskScheduled_${task.id}_${today}`;
-    const graceFlagKey = `graceScheduled_${task.id}_${today}`;
     
     try {
       const scheduleFlag = await window.storage.get(scheduleFlagKey);
@@ -496,29 +528,27 @@ const scheduleTimeBasedNotifications = async (tasks, taskStatuses) => {
         }]
       });
 
-      // Grace reminder (30 min later)
+      // v3.8.1 FIX: Grace reminder - ALWAYS schedule (no flag check)
       const graceTime = new Date(scheduleTime.getTime() + 30 * 60 * 1000);
       const graceNotificationId = 200 + i;
-      
-      const graceFlag = await window.storage.get(graceFlagKey);
-      if (!graceFlag || graceFlag.value !== 'true') {
-        await LocalNotifications.schedule({
-          notifications: [{
-            id: graceNotificationId,
-            title: `⏳ ${task.name} is still pending`,
-            body: 'Just 30 mins can save your streak.',
-            schedule: { at: graceTime },
-            sound: 'default',
-            smallIcon: 'ic_notification',
-            iconColor: '#ff6b35'
-          }]
-        });
-        await window.storage.set(graceFlagKey, 'true');
-      }
 
-      // Set de-duplication flag
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: graceNotificationId,
+          title: `⏳ ${task.name} is still pending`,
+          body: '30 mins already past. Please complete it soon!',
+          schedule: { at: graceTime },
+          sound: 'default',
+          smallIcon: 'ic_notification',
+          iconColor: '#ff6b35'
+        }]
+      });
+
+      // Set de-duplication flag (only for main notification)
       await window.storage.set(scheduleFlagKey, 'true');
-      console.log(`⏰ Scheduled notifications for "${task.name}" at ${scheduleTime.toLocaleString()}`);
+      
+      console.log(`⏰ Scheduled main notification for "${task.name}" at ${scheduleTime.toLocaleString()}`);
+      console.log(`⏰ Scheduled grace reminder for "${task.name}" at ${graceTime.toLocaleString()}`);
 
     } catch (error) {
       console.error(`⏰ Error scheduling time-based notification for "${task.name}":`, error);
@@ -558,7 +588,7 @@ const cancelTimeBasedNotifications = async (taskId, tasks) => {
       ]
     });
 
-    console.log(`⏰ Cancelled time-based notifications for task ${taskId}`);
+    console.log(`⏰ Cancelled time-based notifications (main + grace) for task ${taskId}`);
   } catch (error) {
     console.error('⏰ Error cancelling time-based notifications:', error);
   }
@@ -566,22 +596,50 @@ const cancelTimeBasedNotifications = async (taskId, tasks) => {
 
 /* ============================================================================
  * PUBLIC TRIGGER
- * v3.7: Enhanced with flag cleanup
+ * v3.8: Enhanced with daily check flag
  * ============================================================================ */
 
+/**
+ * v3.8: Daily notification scheduling with proper de-duplication
+ * Called at:
+ * - App startup (once per day via flag)
+ * - Midnight rollover
+ * - Task add/update
+ */
 export const triggerDailyNotificationCheck = async (tasks, taskStatuses) => {
-  console.log('🔔 Trigger daily notification check');
+  console.log('🔔 v3.8.1: Running daily notification check...');
   
-  if (!hasUserActuallyStarted(tasks, taskStatuses)) {
+  if (!hasUserActuallyStarted(tasks)) {
     console.log('🔔 User has not started yet, skipping notifications');
     return;
   }
 
-  // v3.7 NEW: Clear old flags before scheduling
+  // v3.8: Check if already run today
+  const todayString = new Date().toLocaleDateString('en-CA');
+  try {
+    const lastRun = await Preferences.get({ key: 'last_notification_check' });
+    
+    if (lastRun.value === todayString) {
+      console.log('⏭️ Notifications already scheduled for today');
+      return;
+    }
+  } catch (e) {
+    // First run or error, continue
+  }
+
+  // v3.7: Clear old flags before scheduling
   await clearOldNotificationFlags(tasks);
   
   await scheduleDailyNotifications(tasks, taskStatuses);
   await scheduleTimeBasedNotifications(tasks, taskStatuses);
+
+  // v3.8: Mark as run for today
+  try {
+    await Preferences.set({ key: 'last_notification_check', value: todayString });
+    console.log('✅ v3.8.1: Daily notification check complete');
+  } catch (e) {
+    console.error('❌ Failed to mark notification check:', e);
+  }
 };
 
 // Export cancel function for use in App.js

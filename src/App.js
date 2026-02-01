@@ -1,4 +1,4 @@
-// VERSION: 3.7 — Streak Consistency, Notification Reliability, Performance
+// VERSION: 3.8 — Stability, Consistency & Reliability Update
 // Updated: 2026-02-01
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -145,16 +145,15 @@ const getGreetingByTime = () => {
 // ============================================================================
 
 /**
- * v3.7 FIX: SINGLE SOURCE OF TRUTH for streak calculation
- * This function is the ONLY place streaks are calculated
- * Used by: Tracker cards, Streak modal, anywhere streaks display
+ * v3.8 FIX: SINGLE SOURCE OF TRUTH for streak calculation
+ * Used by: Home page, Tracker page, Calendar modal
  * 
  * Algorithm:
  * 1. Start from YESTERDAY (not today)
  * 2. Walk backwards through history
  * 3. Count only days where task was scheduled AND completed
  * 4. Stop at first scheduled day that was NOT completed
- * 5. Today doesn't count toward streak until marked "Yes"
+ * 5. Add today's completion if marked "Yes"
  * 
  * @param {object} task - Task object
  * @param {object} taskStatuses - All completion statuses
@@ -194,7 +193,7 @@ const calculateCurrentStreak = (task, taskStatuses) => {
     checkDate.setDate(checkDate.getDate() - 1);
   }
   
-  // Add today's completion if marked as "Yes"
+  // v3.8: Add today's completion if marked as "Yes"
   const todayString = today.toLocaleDateString('en-CA');
   if (isTaskValidForDate(task, todayString)) {
     const todayStatusKey = `${task.id}_${todayString}`;
@@ -346,7 +345,7 @@ export default function TaskTrackerApp() {
   const [timeValidationError, setTimeValidationError] = useState('');
 
   // ============================================================================
-  // v3.7 PERFORMANCE: Memoized computed values
+  // v3.8 PERFORMANCE: Memoized computed values
   // ============================================================================
   
   /**
@@ -358,7 +357,7 @@ export default function TaskTrackerApp() {
   }, [tasks, selectedDate]);
 
   /**
-   * v3.7 OPTIMIZATION: Memoize streak calculations for all visible tasks
+   * v3.8 OPTIMIZATION: Memoize streak calculations for all visible tasks
    * Prevents recalculation on every render
    */
   const taskStreaks = useMemo(() => {
@@ -370,7 +369,7 @@ export default function TaskTrackerApp() {
   }, [tasksForSelectedDate, taskStatuses]);
 
   /**
-   * v3.7 OPTIMIZATION: Memoize completion counts
+   * v3.8 OPTIMIZATION: Memoize completion counts
    */
   const { completedTasksCount, totalTasksCount } = useMemo(() => {
     const completed = tasksForSelectedDate.filter(task => {
@@ -812,6 +811,10 @@ export default function TaskTrackerApp() {
                         }}
                       >
                         {task.name}
+                        {/* v3.8: Show streak on home page */}
+                        <span className="task-streak-badge">
+                          🔥 {calculateCurrentStreak(task, taskStatuses)}
+                        </span>
                       </h4>
                     </div>
                     <div className="task-actions">
@@ -837,10 +840,24 @@ export default function TaskTrackerApp() {
                       </button>
                     </div>
                   </div>
-                  <p className="task-meta">
-                    {task.frequency} • Starts {new Date(task.startDate).toLocaleDateString()}
-                    {task.endDate && ` • Ends ${new Date(task.endDate).toLocaleDateString()}`}
-                  </p>
+                  
+                  {/* v3.8: Two-line metadata display */}
+                  <div className="task-meta-container">
+                    <p className="task-meta">
+                      {task.frequency}
+                      {task.isTimeBased && task.targetTime && (
+                        <> • {new Date(`2000-01-01T${task.targetTime}`).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}</>
+                      )}
+                    </p>
+                    <p className="task-meta">
+                      Starts {new Date(task.startDate).toLocaleDateString()}
+                      {task.endDate && ` • Ends ${new Date(task.endDate).toLocaleDateString()}`}
+                    </p>
+                  </div>
                 </div>
               ))
             )}
@@ -1082,7 +1099,7 @@ export default function TaskTrackerApp() {
 
   // ============================================================================
   // RENDER: TRACKER PAGE
-  // v3.7: Optimized with memoization
+  // v3.8: Optimized with memoization + swipe restrictions
   // ============================================================================
 
   if (page === 'tracker') {
@@ -1098,6 +1115,10 @@ export default function TaskTrackerApp() {
       const dates = [];
       const today = new Date();
       today.setHours(0, 0, 0, 0);
+      
+      // v3.8: Get install date for validation
+      const installDate = appInstallDate ? new Date(appInstallDate) : null;
+      if (installDate) installDate.setHours(0, 0, 0, 0);
 
       for (let i = 0; i < startingDayOfWeek; i++) {
         dates.push(null);
@@ -1108,12 +1129,18 @@ export default function TaskTrackerApp() {
         date.setHours(0, 0, 0, 0);
 
         const dateString = date.toLocaleDateString('en-CA');
+        
+        // v3.8: Disable future dates and dates before install
+        const isFuture = date > today;
+        const isBeforeInstall = installDate && date < installDate;
+        const isDisabled = isFuture || isBeforeInstall;
 
         dates.push({
           day,
           dateString,
           isToday: dateString === getTodayString(),
           isSelected: dateString === selectedDate,
+          isDisabled, // v3.8: Added
         });
       }
 
@@ -1121,15 +1148,9 @@ export default function TaskTrackerApp() {
     };
 
     return (
-      <div
-        className={`app-container ${darkMode ? 'dark' : ''} tracker-page`}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={handleTouchStart}
-        onMouseMove={handleTouchMove}
-        onMouseUp={handleTouchEnd}
-      >
+      <div className={`app-container ${darkMode ? 'dark' : ''} tracker-page`}>
+        {/* v3.8: Removed swipe handlers from root - now calendar-specific */}
+        
         <header className="tracker-header">
           <button
             onClick={() => setPage('tasks')}
@@ -1155,11 +1176,21 @@ export default function TaskTrackerApp() {
           </button>
         </header>
 
-        {/* VERSION INDICATOR - v3.7 */}
-        <div style={{display: 'none'}}>v3.7</div>
+        {/* VERSION INDICATOR - v3.8 */}
+        <div style={{display: 'none'}}>v3.8</div>
 
         {showCalendar && (
-          <div className="inline-calendar">
+          <div 
+            className="inline-calendar"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onMouseDown={handleTouchStart}
+            onMouseMove={handleTouchMove}
+            onMouseUp={handleTouchEnd}
+          >
+            {/* v3.8: Swipe gestures restricted to calendar only */}
+            
             <div className="calendar-weekdays">
               <div className="weekday">S</div>
               <div className="weekday">M</div>
@@ -1317,7 +1348,7 @@ export default function TaskTrackerApp() {
 }
 
 // ============================================================================
-// STYLES (UNCHANGED FROM v3.6)
+// STYLES (v3.8 ADDITIONS)
 // ============================================================================
 
 const styles = `
@@ -1705,9 +1736,9 @@ const styles = `
     font-size: 18px;
     font-weight: 600;
     color: #1a1a2e;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
 
   .task-name.clickable {
@@ -1720,9 +1751,29 @@ const styles = `
     transform: translateX(2px);
   }
 
+  /* v3.8: Streak badge on home page */
+  .task-streak-badge {
+    margin-left: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ff6b35;
+    white-space: nowrap;
+  }
+
+  /* v3.8: Two-line task metadata */
+  .task-meta-container {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   .task-meta {
     font-size: 13px;
     color: #6b6b80;
+    margin: 0;
+  }
+
+  .task-meta:first-child {
     margin-top: 4px;
   }
 
