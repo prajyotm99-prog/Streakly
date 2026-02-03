@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Exclude notification flags from cloud backup -->
+        <exclude domain="sharedpref" path="CapacitorStorage"/>
+        <exclude domain="sharedpref" path="capacitor-preferences"/>
+        
+        <!-- Include user data -->
+        <include domain="sharedpref" path="."/>
+    </cloud-backup>
+    
+    <device-transfer>
+        <!-- Include all data for device transfer -->
+        <include domain="sharedpref" path="."/>
+    </device-transfer>
+</data-extraction-rules>

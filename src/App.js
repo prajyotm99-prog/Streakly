@@ -1,8 +1,8 @@
-// VERSION: 3.8 — Stability, Consistency & Reliability Update
-// Updated: 2026-02-01
+// VERSION: 3.7.6 – Homepage Active/Ended sections, DD/MM/YYYY dates, dark button polish
+// Updated: 2026-02-03
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, Home, Plus, X, Trash2 } from 'lucide-react';
+import { Calendar, Home, Plus, X, Trash2, Pencil } from 'lucide-react';
 import { initPushNotifications, triggerDailyNotificationCheck, cancelTimeBasedNotifications } from './PushNotifications';
 import { Capacitor } from '@capacitor/core';
 console.log('📱 Platform:', Capacitor.getPlatform());
@@ -145,15 +145,16 @@ const getGreetingByTime = () => {
 // ============================================================================
 
 /**
- * v3.8 FIX: SINGLE SOURCE OF TRUTH for streak calculation
- * Used by: Home page, Tracker page, Calendar modal
+ * v3.7 FIX: SINGLE SOURCE OF TRUTH for streak calculation
+ * This function is the ONLY place streaks are calculated
+ * Used by: Tracker cards, Streak modal, Homepage badges (v3.7.5)
  * 
  * Algorithm:
  * 1. Start from YESTERDAY (not today)
  * 2. Walk backwards through history
  * 3. Count only days where task was scheduled AND completed
  * 4. Stop at first scheduled day that was NOT completed
- * 5. Add today's completion if marked "Yes"
+ * 5. Today doesn't count toward streak until marked "Yes"
  * 
  * @param {object} task - Task object
  * @param {object} taskStatuses - All completion statuses
@@ -193,7 +194,7 @@ const calculateCurrentStreak = (task, taskStatuses) => {
     checkDate.setDate(checkDate.getDate() - 1);
   }
   
-  // v3.8: Add today's completion if marked as "Yes"
+  // Add today's completion if marked as "Yes"
   const todayString = today.toLocaleDateString('en-CA');
   if (isTaskValidForDate(task, todayString)) {
     const todayStatusKey = `${task.id}_${todayString}`;
@@ -301,6 +302,36 @@ const autoMarkUncompletedTasks = async (tasks, taskStatuses, setTaskStatuses, sa
 };
 
 // ============================================================================
+// v3.7.5: SAFE TIME FORMATTER
+// Formats HH:MM string to "9:00 AM" style display
+// ============================================================================
+const formatTargetTime = (timeString) => {
+  if (!timeString) return null;
+  try {
+    return new Date(`2000-01-01T${timeString}`).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * v3.7.6: Render-time date formatter → DD/MM/YYYY with leading zeros
+ * Does NOT touch stored values — formatting only
+ * @param {string} dateString - YYYY-MM-DD from storage
+ * @returns {string} - "DD/MM/YYYY"
+ */
+const formatDDMMYYYY = (dateString) => {
+  if (!dateString) return '';
+  // Parse as local date parts to avoid timezone shift
+  const [year, month, day] = dateString.split('-');
+  return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+};
+
+// ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
 
@@ -330,6 +361,10 @@ export default function TaskTrackerApp() {
   const [showStreakModal, setShowStreakModal] = useState(false);
   const [selectedTaskForStreak, setSelectedTaskForStreak] = useState(null);
   const [editingPartlyTask, setEditingPartlyTask] = useState(null);
+
+  // v3.7.5: Edit modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
   
   const [currentTaskForEnd, setCurrentTaskForEnd] = useState(null);
   
@@ -345,7 +380,7 @@ export default function TaskTrackerApp() {
   const [timeValidationError, setTimeValidationError] = useState('');
 
   // ============================================================================
-  // v3.8 PERFORMANCE: Memoized computed values
+  // v3.7 PERFORMANCE: Memoized computed values
   // ============================================================================
   
   /**
@@ -357,7 +392,7 @@ export default function TaskTrackerApp() {
   }, [tasks, selectedDate]);
 
   /**
-   * v3.8 OPTIMIZATION: Memoize streak calculations for all visible tasks
+   * v3.7 OPTIMIZATION: Memoize streak calculations for all visible tasks
    * Prevents recalculation on every render
    */
   const taskStreaks = useMemo(() => {
@@ -369,7 +404,7 @@ export default function TaskTrackerApp() {
   }, [tasksForSelectedDate, taskStatuses]);
 
   /**
-   * v3.8 OPTIMIZATION: Memoize completion counts
+   * v3.7 OPTIMIZATION: Memoize completion counts
    */
   const { completedTasksCount, totalTasksCount } = useMemo(() => {
     const completed = tasksForSelectedDate.filter(task => {
@@ -388,7 +423,31 @@ export default function TaskTrackerApp() {
    * Only recalculate when tasks array changes
    */
   const activeTasks = useMemo(() => {
-    return tasks.filter(task => !task.endDate || new Date(task.endDate) >= new Date());
+    const today = getTodayString(); // "YYYY-MM-DD" — string compare is safe for this format
+    return tasks.filter(task => !task.endDate || task.endDate > today);
+  }, [tasks]);
+
+  /**
+   * v3.7.5: Memoize streak calculations for homepage
+   * Iterates activeTasks (not tasksForSelectedDate — that's tracker-only)
+   * Reuses the exact same calculateCurrentStreak — zero new streak logic
+   */
+  const homepageTaskStreaks = useMemo(() => {
+    const streaks = {};
+    activeTasks.forEach(task => {
+      streaks[task.id] = calculateCurrentStreak(task, taskStatuses);
+    });
+    return streaks;
+  }, [activeTasks, taskStatuses]);
+
+  /**
+   * v3.7.6: Tasks whose endDate is today or in the past
+   * Strict inverse of activeTasks — together they partition all tasks with zero overlap
+   * String comparison on YYYY-MM-DD is safe and timezone-free
+   */
+  const endedTasks = useMemo(() => {
+    const today = getTodayString();
+    return tasks.filter(task => task.endDate && task.endDate <= today);
   }, [tasks]);
 
   /**
@@ -408,8 +467,8 @@ export default function TaskTrackerApp() {
    * @returns {boolean} - True if any overlay is open
    */
   const isAnyOverlayOpen = useCallback(() => {
-    return showAddTask || showEndTask || showCalendar || showStatusDialog || showStreakModal;
-  }, [showAddTask, showEndTask, showCalendar, showStatusDialog, showStreakModal]);
+    return showAddTask || showEndTask || showCalendar || showStatusDialog || showStreakModal || showEditModal;
+  }, [showAddTask, showEndTask, showCalendar, showStatusDialog, showStreakModal, showEditModal]);
   
   const handleTouchStart = useCallback((e) => {
     if (isAnyOverlayOpen()) return;
@@ -675,6 +734,64 @@ export default function TaskTrackerApp() {
   };
 
   /**
+   * v3.7.5: Opens the edit modal pre-filled with task data
+   * Safe defaults applied for legacy tasks missing isTimeBased/targetTime
+   */
+  const handleOpenEdit = (task) => {
+    setEditingTask({
+      id: task.id,
+      name: task.name,
+      frequency: task.frequency,
+      isTimeBased: task.isTimeBased || false,
+      targetTime: task.targetTime || null
+    });
+    setShowEditModal(true);
+  };
+
+  /**
+   * v3.7.5: Saves edits to a task
+   * Only updates: name, frequency, isTimeBased, targetTime
+   * NEVER touches: id, startDate, endDate, statuses
+   */
+  const handleSaveEdit = async () => {
+    if (!editingTask) return;
+
+    // Validate time if time-based
+    if (editingTask.isTimeBased && !editingTask.targetTime) {
+      setTimeValidationError('Please select a target time');
+      return;
+    }
+
+    // Check for duplicate name (exclude current task)
+    const isDuplicate = tasks.some(
+      t => t.id !== editingTask.id && t.name.toLowerCase() === editingTask.name.toLowerCase()
+    );
+    if (isDuplicate) {
+      setDuplicateError('A task with this name already exists!');
+      return;
+    }
+
+    const updatedTasks = tasks.map(task =>
+      task.id === editingTask.id
+        ? {
+            ...task,
+            name: toTitleCase(editingTask.name.trim()),
+            frequency: editingTask.frequency,
+            isTimeBased: editingTask.isTimeBased,
+            targetTime: editingTask.isTimeBased ? editingTask.targetTime : null
+          }
+        : task
+    );
+
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
+    setShowEditModal(false);
+    setEditingTask(null);
+    setDuplicateError('');
+    setTimeValidationError('');
+  };
+
+  /**
    * v3.6 FIX: Handles status change for a task (Yes/No/Partly)
    * NOW only allows changes for TODAY
    * Past/future dates are read-only
@@ -750,7 +867,8 @@ export default function TaskTrackerApp() {
   }
 
   // ============================================================================
-  // RENDER: TASKS MANAGEMENT PAGE
+  // RENDER: TASKS MANAGEMENT PAGE (HOMEPAGE)
+  // v3.7.5: Added streak badge, time display, edit button
   // ============================================================================
 
   if (page === 'tasks') {
@@ -794,72 +912,123 @@ export default function TaskTrackerApp() {
           </div>
 
           <div className="task-list">
-            {activeTasks.length === 0 ? (
+            {/* ── Active Tasks ─────────────────────────────── */}
+            <p className="section-subtitle">Active Tasks</p>
+
+            {activeTasks.length === 0 && endedTasks.length === 0 ? (
               <div className="empty-state">
                 <p>No tasks yet. Add your first task to get started!</p>
               </div>
+            ) : activeTasks.length === 0 ? (
+              <div className="empty-state-small">
+                <p>No active tasks</p>
+              </div>
             ) : (
-              activeTasks.map(task => (
-                <div key={task.id} className="task-item">
-                  <div className="task-header">
-                    <div className="task-info">
-                      <h4 
-                        className="task-name clickable"
-                        onClick={() => {
-                          setSelectedTaskForStreak(task);
-                          setShowStreakModal(true);
-                        }}
-                      >
-                        {task.name}
-                        {/* v3.8: Show streak on home page */}
-                        <span className="task-streak-badge">
-                          🔥 {calculateCurrentStreak(task, taskStatuses)}
-                        </span>
-                      </h4>
+              activeTasks.map(task => {
+                // v3.7.5: safe defaults for legacy tasks
+                const isTimeBased = task.isTimeBased || false;
+                const targetTime = task.targetTime || null;
+                const streak = homepageTaskStreaks[task.id] || 0;
+
+                return (
+                  <div key={task.id} className="task-item">
+                    <div className="task-header">
+                      <div className="task-info">
+                        <div className="task-name-row">
+                          <h4 
+                            className="task-name clickable"
+                            onClick={() => {
+                              setSelectedTaskForStreak(task);
+                              setShowStreakModal(true);
+                            }}
+                          >
+                            {task.name}
+                          </h4>
+                          {/* v3.7.5: Streak badge — only shown if streak > 0 */}
+                          {streak > 0 && (
+                            <span className="streak-badge-homepage">🔥 {streak}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="task-actions">
+                        {/* v3.7.5: Edit button */}
+                        <button
+                          onClick={() => handleOpenEdit(task)}
+                          className="task-action-button edit-button"
+                          title="Edit Task"
+                        >
+                          <Pencil size={18} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCurrentTaskForEnd(task);
+                            setShowEndTask(true);
+                          }}
+                          className="task-action-button end-button"
+                          title="End Task"
+                        >
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <rect x="9" y="9" width="6" height="6"/>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleRemoveTask(task.id)}
+                          className="task-action-button remove-button"
+                          title="Delete Task"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="task-actions">
-                      <button
-                        onClick={() => {
-                          setCurrentTaskForEnd(task);
-                          setShowEndTask(true);
-                        }}
-                        className="task-action-button end-button"
-                        title="End Task"
-                      >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="10"/>
-                          <rect x="9" y="9" width="6" height="6"/>
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleRemoveTask(task.id)}
-                        className="task-action-button remove-button"
-                        title="Delete Task"
-                      >
-                        <Trash2 size={20} />
-                      </button>
+                    {/* Meta: frequency + started date (no endDate here — ended tasks have own section) */}
+                    <p className="task-meta">
+                      {task.frequency} • Started {formatDDMMYYYY(task.startDate)}
+                    </p>
+                    {/* v3.7.5: Time display — only for time-based tasks */}
+                    {isTimeBased && targetTime && (
+                      <p className="task-time-homepage">🕐 {formatTargetTime(targetTime)}</p>
+                    )}
+                  </div>
+                );
+              })
+            )}
+
+            {/* ── Ended Tasks ──────────────────────────────── */}
+            {endedTasks.length > 0 && (
+              <>
+                <p className="section-subtitle ended-subtitle">Ended Tasks</p>
+                {endedTasks.map(task => (
+                  <div key={task.id} className="task-item ended-task-item">
+                    <div className="task-header">
+                      <div className="task-info">
+                        <h4 
+                          className="task-name ended-task-name clickable"
+                          onClick={() => {
+                            setSelectedTaskForStreak(task);
+                            setShowStreakModal(true);
+                          }}
+                        >
+                          {task.name}
+                        </h4>
+                      </div>
+                      <div className="task-actions">
+                        {/* Ended tasks: delete only */}
+                        <button
+                          onClick={() => handleRemoveTask(task.id)}
+                          className="task-action-button remove-button"
+                          title="Delete Task"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  
-                  {/* v3.8: Two-line metadata display */}
-                  <div className="task-meta-container">
                     <p className="task-meta">
-                      {task.frequency}
-                      {task.isTimeBased && task.targetTime && (
-                        <> • {new Date(`2000-01-01T${task.targetTime}`).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          hour12: true
-                        })}</>
-                      )}
-                    </p>
-                    <p className="task-meta">
-                      Starts {new Date(task.startDate).toLocaleDateString()}
-                      {task.endDate && ` • Ends ${new Date(task.endDate).toLocaleDateString()}`}
+                      {task.frequency} • Started on: {formatDDMMYYYY(task.startDate)}
                     </p>
                   </div>
-                </div>
-              ))
+                ))}
+              </>
             )}
           </div>
         </main>
@@ -1042,6 +1211,125 @@ export default function TaskTrackerApp() {
           </div>
         )}
 
+        {/* v3.7.5: Edit Task Modal */}
+        {showEditModal && editingTask && (
+          <div className="modal-overlay" onClick={() => {
+            setShowEditModal(false);
+            setEditingTask(null);
+            setDuplicateError('');
+            setTimeValidationError('');
+          }}>
+            <div 
+              className="modal-content" 
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <h3>Edit Task</h3>
+                <button onClick={() => {
+                  setShowEditModal(false);
+                  setEditingTask(null);
+                  setDuplicateError('');
+                  setTimeValidationError('');
+                }} className="close-button">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="modal-body">
+                {/* Task Name */}
+                <div className="form-group">
+                  <label>Task Name</label>
+                  <input
+                    type="text"
+                    value={editingTask.name}
+                    onChange={(e) => {
+                      setEditingTask({ ...editingTask, name: e.target.value });
+                      setDuplicateError('');
+                    }}
+                    placeholder="Task name"
+                    className="form-input"
+                    autoFocus
+                  />
+                  {duplicateError && (
+                    <p className="error-message">{duplicateError}</p>
+                  )}
+                </div>
+
+                {/* Frequency */}
+                <div className="form-group">
+                  <label>Frequency</label>
+                  <select
+                    value={editingTask.frequency}
+                    onChange={(e) => setEditingTask({ ...editingTask, frequency: e.target.value })}
+                    className="form-input"
+                  >
+                    <option value="Daily">Daily</option>
+                    <option value="Alternate Days">Alternate Days</option>
+                    <option value="Weekly">Weekly</option>
+                    <option value="Monthly">Monthly</option>
+                  </select>
+                </div>
+
+                {/* Time-based toggle */}
+                <div className="form-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={editingTask.isTimeBased}
+                      onChange={(e) => {
+                        setEditingTask({
+                          ...editingTask,
+                          isTimeBased: e.target.checked,
+                          targetTime: e.target.checked ? editingTask.targetTime : null
+                        });
+                        setTimeValidationError('');
+                      }}
+                      className="form-checkbox"
+                    />
+                    <span>Time-based task?</span>
+                  </label>
+                </div>
+
+                {/* Target Time — only visible when time-based */}
+                {editingTask.isTimeBased && (
+                  <div className="form-group">
+                    <label>Target Time</label>
+                    <input
+                      type="time"
+                      value={editingTask.targetTime || ''}
+                      onChange={(e) => {
+                        setEditingTask({ ...editingTask, targetTime: e.target.value });
+                        setTimeValidationError('');
+                      }}
+                      className="form-input"
+                    />
+                    {timeValidationError && (
+                      <span className="error-text">{timeValidationError}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="modal-buttons">
+                <button onClick={() => {
+                  setShowEditModal(false);
+                  setEditingTask(null);
+                  setDuplicateError('');
+                  setTimeValidationError('');
+                }} className="btn-secondary">Cancel</button>
+                <button 
+                  onClick={handleSaveEdit} 
+                  className="btn-primary"
+                  disabled={!editingTask.name.trim() || (editingTask.isTimeBased && !editingTask.targetTime)}
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Streak Calendar Modal */}
         {showStreakModal && selectedTaskForStreak && (
           <div className="modal-overlay" onClick={() => setShowStreakModal(false)}>
@@ -1087,7 +1375,13 @@ export default function TaskTrackerApp() {
                 </div>
                 
                 <div className="streak-footer">
-                  <p className="streak-subtitle">Keep it up! Complete tasks to build your streak.</p>
+                  {selectedTaskForStreak.endDate && selectedTaskForStreak.endDate <= getTodayString() ? (
+                    <p className="streak-subtitle ended-task-note">
+                      📖 This task has ended. History is read-only.
+                    </p>
+                  ) : (
+                    <p className="streak-subtitle">Keep it up! Complete tasks to build your streak.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1099,7 +1393,7 @@ export default function TaskTrackerApp() {
 
   // ============================================================================
   // RENDER: TRACKER PAGE
-  // v3.8: Optimized with memoization + swipe restrictions
+  // v3.7: Optimized with memoization
   // ============================================================================
 
   if (page === 'tracker') {
@@ -1115,10 +1409,6 @@ export default function TaskTrackerApp() {
       const dates = [];
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
-      // v3.8: Get install date for validation
-      const installDate = appInstallDate ? new Date(appInstallDate) : null;
-      if (installDate) installDate.setHours(0, 0, 0, 0);
 
       for (let i = 0; i < startingDayOfWeek; i++) {
         dates.push(null);
@@ -1129,18 +1419,12 @@ export default function TaskTrackerApp() {
         date.setHours(0, 0, 0, 0);
 
         const dateString = date.toLocaleDateString('en-CA');
-        
-        // v3.8: Disable future dates and dates before install
-        const isFuture = date > today;
-        const isBeforeInstall = installDate && date < installDate;
-        const isDisabled = isFuture || isBeforeInstall;
 
         dates.push({
           day,
           dateString,
           isToday: dateString === getTodayString(),
           isSelected: dateString === selectedDate,
-          isDisabled, // v3.8: Added
         });
       }
 
@@ -1148,9 +1432,15 @@ export default function TaskTrackerApp() {
     };
 
     return (
-      <div className={`app-container ${darkMode ? 'dark' : ''} tracker-page`}>
-        {/* v3.8: Removed swipe handlers from root - now calendar-specific */}
-        
+      <div
+        className={`app-container ${darkMode ? 'dark' : ''} tracker-page`}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onMouseDown={handleTouchStart}
+        onMouseMove={handleTouchMove}
+        onMouseUp={handleTouchEnd}
+      >
         <header className="tracker-header">
           <button
             onClick={() => setPage('tasks')}
@@ -1176,21 +1466,11 @@ export default function TaskTrackerApp() {
           </button>
         </header>
 
-        {/* VERSION INDICATOR - v3.8 */}
-        <div style={{display: 'none'}}>v3.8</div>
+        {/* VERSION INDICATOR - v3.7.5 */}
+        <div style={{display: 'none'}}>v3.7.5</div>
 
         {showCalendar && (
-          <div 
-            className="inline-calendar"
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onMouseDown={handleTouchStart}
-            onMouseMove={handleTouchMove}
-            onMouseUp={handleTouchEnd}
-          >
-            {/* v3.8: Swipe gestures restricted to calendar only */}
-            
+          <div className="inline-calendar">
             <div className="calendar-weekdays">
               <div className="weekday">S</div>
               <div className="weekday">M</div>
@@ -1348,7 +1628,8 @@ export default function TaskTrackerApp() {
 }
 
 // ============================================================================
-// STYLES (v3.8 ADDITIONS)
+// STYLES
+// v3.7.5: Added .task-name-row, .streak-badge-homepage, .task-time-homepage, .edit-button
 // ============================================================================
 
 const styles = `
@@ -1484,6 +1765,10 @@ const styles = `
     color: #b8bbd9;
   }
 
+  .dark .ended-task-note {
+    color: #7a7fa8;
+  }
+
   .dark .tracker-item-meta .task-frequency {
     color: #b8bbd9;
   }
@@ -1614,6 +1899,71 @@ const styles = `
     color: #ffffff;
   }
 
+  /* v3.7.5: Dark mode for new homepage elements */
+  .dark .streak-badge-homepage {
+    background: rgba(255, 107, 53, 0.2);
+    color: #ffaa77;
+  }
+
+  .dark .task-time-homepage {
+    color: #8b9dff;
+  }
+
+  .dark .edit-button {
+    background: #242863;
+    color: #8b9dff;
+  }
+
+  .dark .edit-button:hover {
+    background: #2f3490;
+  }
+
+  .dark .end-button {
+    background: #2a1f0e;
+    color: #ffb74d;
+  }
+
+  .dark .end-button:hover {
+    background: #3a2a14;
+  }
+
+  .dark .remove-button {
+    background: #2a1010;
+    color: #ef5350;
+  }
+
+  .dark .remove-button:hover {
+    background: #3a1818;
+  }
+
+  /* v3.7.6: Dark mode — section subtitles & ended cards */
+  .dark .section-subtitle {
+    color: #8b9dff;
+  }
+
+  .dark .ended-subtitle {
+    color: #6b6f8a;
+  }
+
+  .dark .ended-task-item {
+    background: #141828;
+    border-color: #222650;
+    opacity: 0.75;
+  }
+
+  .dark .ended-task-item:hover {
+    border-color: #2a2f55;
+    box-shadow: none;
+  }
+
+  .dark .ended-task-name {
+    color: #7a7fa8;
+  }
+
+  .dark .empty-state-small {
+    color: #555a7a;
+  }
+
   .tasks-page {
     display: flex;
     flex-direction: column;
@@ -1707,6 +2057,54 @@ const styles = `
     gap: 12px;
   }
 
+  /* v3.7.6: Section subheadings inside task list */
+  .section-subtitle {
+    font-size: 13px;
+    font-weight: 700;
+    color: #667eea;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 4px 0 2px;
+    margin-top: 4px;
+  }
+
+  .section-subtitle:first-child {
+    margin-top: 0;
+  }
+
+  .ended-subtitle {
+    color: #9b9bb0;
+    margin-top: 16px;
+  }
+
+  /* v3.7.6: Ended task card — visually muted */
+  .ended-task-item {
+    background: #fafafa;
+    border-color: #ececec;
+    opacity: 0.82;
+  }
+
+  .ended-task-item:hover {
+    border-color: #d8d8e0;
+    box-shadow: none;
+  }
+
+  .ended-task-name {
+    color: #6b6b80;
+  }
+
+  /* v3.7.6: Small empty state inside a section (not full-page) */
+  .empty-state-small {
+    text-align: center;
+    padding: 18px 20px;
+    color: #b0b0c0;
+  }
+
+  .empty-state-small p {
+    font-size: 14px;
+    font-style: italic;
+  }
+
   .task-item {
     background: #ffffff;
     border: 2px solid #f0f0f8;
@@ -1732,13 +2130,23 @@ const styles = `
     min-width: 0;
   }
 
+  /* v3.7.5: Name + streak badge row */
+  .task-name-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
   .task-name {
     font-size: 18px;
     font-weight: 600;
     color: #1a1a2e;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 0;
   }
 
   .task-name.clickable {
@@ -1751,29 +2159,32 @@ const styles = `
     transform: translateX(2px);
   }
 
-  /* v3.8: Streak badge on home page */
-  .task-streak-badge {
-    margin-left: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #ff6b35;
+  /* v3.7.5: Streak badge on homepage */
+  .streak-badge-homepage {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(255, 107, 53, 0.12);
+    color: #e65100;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
     white-space: nowrap;
-  }
-
-  /* v3.8: Two-line task metadata */
-  .task-meta-container {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-shrink: 0;
   }
 
   .task-meta {
     font-size: 13px;
     color: #6b6b80;
-    margin: 0;
+    margin-top: 4px;
   }
 
-  .task-meta:first-child {
+  /* v3.7.5: Time display on homepage task card */
+  .task-time-homepage {
+    font-size: 13px;
+    color: #667eea;
+    font-weight: 600;
     margin-top: 4px;
   }
 
@@ -1793,6 +2204,17 @@ const styles = `
     align-items: center;
     justify-content: center;
     font-family: 'DM Sans', sans-serif;
+  }
+
+  /* v3.7.5: Edit button */
+  .edit-button {
+    background: #eef0ff;
+    color: #667eea;
+  }
+
+  .edit-button:hover {
+    background: #dde1ff;
+    transform: scale(1.05);
   }
 
   .end-button {
@@ -2665,6 +3087,11 @@ const styles = `
     font-size: 14px;
     color: #6b6b80;
     line-height: 1.5;
+  }
+
+  .ended-task-note {
+    color: #9b9bb0;
+    font-style: italic;
   }
 
   @media (max-width: 480px) {

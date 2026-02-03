@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude notification flags and temporary data from backup -->
+    <exclude domain="sharedpref" path="CapacitorStorage"/>
+    <exclude domain="sharedpref" path="capacitor-preferences"/>
+    
+    <!-- Include user data (tasks, statuses, settings) -->
+    <include domain="sharedpref" path="."/>
+</full-backup-content>
