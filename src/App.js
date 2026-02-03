@@ -982,13 +982,17 @@ export default function TaskTrackerApp() {
                       </div>
                     </div>
                     {/* Meta: frequency + started date (no endDate here — ended tasks have own section) */}
+                    {/* Meta line: frequency + time (if time-based) */}
                     <p className="task-meta">
-                      {task.frequency} • Started {formatDDMMYYYY(task.startDate)}
+                      {task.frequency}
+                      {isTimeBased && targetTime && (
+                        <> • ⏰ {formatTargetTime(targetTime)}</>
+                      )}
                     </p>
-                    {/* v3.7.5: Time display — only for time-based tasks */}
-                    {isTimeBased && targetTime && (
-                      <p className="task-time-homepage">🕐 {formatTargetTime(targetTime)}</p>
-                    )}
+                    {/* Started date on separate line */}
+                    <p className="task-meta task-started-date">
+                      Started {formatDDMMYYYY(task.startDate)}
+                    </p>
                   </div>
                 );
               })
@@ -1023,8 +1027,11 @@ export default function TaskTrackerApp() {
                         </button>
                       </div>
                     </div>
-                    <p className="task-meta">
-                      {task.frequency} • Started on: {formatDDMMYYYY(task.startDate)}
+                    {/* Line 1: Frequency */}
+                    <p className="task-meta">{task.frequency}</p>
+                    {/* Line 2: Started and Ended dates on same line */}
+                    <p className="task-meta task-dates-line">
+                      Started {formatDDMMYYYY(task.startDate)} • Ended {formatDDMMYYYY(task.endDate)}
                     </p>
                   </div>
                 ))}
@@ -1905,10 +1912,6 @@ const styles = `
     color: #ffaa77;
   }
 
-  .dark .task-time-homepage {
-    color: #8b9dff;
-  }
-
   .dark .edit-button {
     background: #242863;
     color: #8b9dff;
@@ -2177,14 +2180,6 @@ const styles = `
   .task-meta {
     font-size: 13px;
     color: #6b6b80;
-    margin-top: 4px;
-  }
-
-  /* v3.7.5: Time display on homepage task card */
-  .task-time-homepage {
-    font-size: 13px;
-    color: #667eea;
-    font-weight: 600;
     margin-top: 4px;
   }
 
