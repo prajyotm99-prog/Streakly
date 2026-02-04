@@ -1,4 +1,4 @@
-package com.prajyot.tasktracker;
+package com.streakly.app;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -26,7 +26,7 @@ public class ExactAlarmReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (intent == null || !"com.prajyot.tasktracker.EXACT_ALARM".equals(intent.getAction())) {
+        if (intent == null || !"com.streakly.app.EXACT_ALARM".equals(intent.getAction())) {
             return;
         }
 

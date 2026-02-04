@@ -1,4 +1,4 @@
-package com.prajyot.tasktracker;
+package com.streakly.app;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;

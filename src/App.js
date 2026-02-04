@@ -1,5 +1,5 @@
-// VERSION: 3.7.6 – Homepage Active/Ended sections, DD/MM/YYYY dates, dark button polish
-// Updated: 2026-02-03
+// VERSION: 3.8 – Reliable Exact Time Notifications (v3.7.6 UI + native AlarmManager)
+// Updated: 2026-02-04
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Calendar, Home, Plus, X, Trash2, Pencil } from 'lucide-react';

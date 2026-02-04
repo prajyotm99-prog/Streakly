@@ -1,0 +1,32 @@
+<!-- ============================================================================
+     v3.8: AndroidManifest.xml REQUIRED ADDITIONS
+     Add these inside the <manifest> and <application> tags
+     ============================================================================ -->
+
+<!-- PERMISSIONS (add inside <manifest> tag, before <application>) -->
+<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+<uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+<!-- BROADCAST RECEIVER (add inside <application> tag) -->
+<receiver 
+    android:name=".ExactAlarmReceiver"
+    android:enabled="true"
+    android:exported="false">
+    <intent-filter>
+        <action android:name="com.prajyot.tasktracker.EXACT_ALARM" />
+    </intent-filter>
+    <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+    </intent-filter>
+</receiver>
+
+<!-- 
+     NOTES:
+     - SCHEDULE_EXACT_ALARM is auto-granted on install (Android 12+)
+     - USE_EXACT_ALARM is for critical alarms (optional, belt-and-braces)
+     - BOOT_COMPLETED allows re-scheduling after reboot
+     - ExactAlarmReceiver MUST be in com.prajyot.tasktracker package
+     - Intent action matches: com.prajyot.tasktracker.EXACT_ALARM
+-->

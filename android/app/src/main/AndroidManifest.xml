@@ -2,13 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="false"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme"
-        android:fullBackupContent="false">
+        android:theme="@style/AppTheme">
 
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
@@ -45,7 +46,15 @@
 
         <receiver
             android:name=".ExactAlarmReceiver"
-            android:exported="false" />
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.prajyot.tasktracker.EXACT_ALARM" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

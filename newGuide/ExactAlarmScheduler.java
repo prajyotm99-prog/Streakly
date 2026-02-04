@@ -1,4 +1,4 @@
-package com.prajyot.tasktracker;
+package com.streakly.app;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
@@ -40,7 +40,7 @@ public class ExactAlarmScheduler {
         try {
             // Create intent for the broadcast receiver
             Intent intent = new Intent(context, ExactAlarmReceiver.class);
-            intent.setAction("com.prajyot.tasktracker.EXACT_ALARM");
+            intent.setAction("com.streakly.app.EXACT_ALARM");
             intent.putExtra("taskId", taskId);
             intent.putExtra("taskName", taskName);
 
@@ -89,7 +89,7 @@ public class ExactAlarmScheduler {
 
         try {
             Intent intent = new Intent(context, ExactAlarmReceiver.class);
-            intent.setAction("com.prajyot.tasktracker.EXACT_ALARM");
+            intent.setAction("com.streakly.app.EXACT_ALARM");
             
             int requestCode = taskId.hashCode();
             

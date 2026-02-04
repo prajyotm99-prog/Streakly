@@ -14,6 +14,8 @@ import com.getcapacitor.BridgeActivity;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 
+import com.prajyot.tasktracker.ExactAlarmPlugin;
+
 public class MainActivity extends BridgeActivity {
 
     private static final String TAG = "MainActivity";
