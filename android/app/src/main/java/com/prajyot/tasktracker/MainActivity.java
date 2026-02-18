@@ -11,10 +11,11 @@ import android.util.Log;
 import androidx.appcompat.app.AlertDialog;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.Plugin;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 
-import com.prajyot.tasktracker.ExactAlarmPlugin;
+import java.util.ArrayList;
 
 public class MainActivity extends BridgeActivity {
 
@@ -22,9 +23,12 @@ public class MainActivity extends BridgeActivity {
     private static final int REQUEST_EXACT_ALARM = 1001;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    public void onCreate(Bundle savedInstanceState) {
+        // Register plugin BEFORE calling super.onCreate()
         registerPlugin(ExactAlarmPlugin.class);
+        Log.d(TAG, "🔵 ExactAlarmPlugin registered before super.onCreate()");
+        
+        super.onCreate(savedInstanceState);
         
         // Initialize Firebase
         FirebaseApp.initializeApp(this);
@@ -41,22 +45,16 @@ public class MainActivity extends BridgeActivity {
                 Log.d("FCM_TEST", "✅ FCM TOKEN: " + token);
             });
 
-        // v3.7.1: Check exact alarm permission on startup
+        // Check exact alarm permission on startup
         checkExactAlarmPermission();
     }
 
-    /**
-     * v3.7.1: Check if exact alarm permission is granted
-     * If not, show dialog and open settings
-     */
     private void checkExactAlarmPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 12+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
             
             if (alarmManager != null && !alarmManager.canScheduleExactAlarms()) {
                 Log.w(TAG, "⚠️ Exact alarm permission NOT granted");
-                
-                // Show dialog after a short delay
                 new android.os.Handler().postDelayed(this::showPermissionDialog, 2000);
             } else {
                 Log.d(TAG, "✅ Exact alarm permission already granted");
@@ -64,9 +62,6 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    /**
-     * v3.7.1: Show permission request dialog
-     */
     private void showPermissionDialog() {
         new AlertDialog.Builder(this)
             .setTitle("Permission Required")
@@ -82,13 +77,8 @@ public class MainActivity extends BridgeActivity {
             .show();
     }
 
-    /**
-     * v3.7.1: Open alarm & reminder settings
-     * Tries multiple methods to ensure it works on all devices
-     */
     private void openAlarmSettings() {
         try {
-            // Method 1: Try direct exact alarm settings (Android 12+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
                 intent.setData(Uri.parse("package:" + getPackageName()));
@@ -101,7 +91,6 @@ public class MainActivity extends BridgeActivity {
         }
 
         try {
-            // Method 2: Try app-specific settings
             Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             intent.setData(Uri.parse("package:" + getPackageName()));
             startActivity(intent);
@@ -112,7 +101,6 @@ public class MainActivity extends BridgeActivity {
         }
 
         try {
-            // Method 3: Fallback to general settings
             Intent intent = new Intent(Settings.ACTION_SETTINGS);
             startActivity(intent);
             Log.d(TAG, "📱 Opened general settings (method 3)");
@@ -126,7 +114,6 @@ public class MainActivity extends BridgeActivity {
         super.onActivityResult(requestCode, resultCode, data);
         
         if (requestCode == REQUEST_EXACT_ALARM) {
-            // Check if permission was granted
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
                 if (alarmManager != null && alarmManager.canScheduleExactAlarms()) {

@@ -16,6 +16,12 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+     sourceSets {
+        main {
+            java.srcDirs += 'src/main/java'
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -45,6 +51,7 @@ dependencies {
     implementation "com.google.firebase:firebase-messaging"
     implementation "com.google.firebase:firebase-analytics"
     implementation project(':capacitor-android')
+    implementation fileTree(dir: 'src/main/java', include: ['**/*.java'])
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
