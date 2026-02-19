@@ -1023,7 +1023,7 @@ const handleOnboardingNext = async () => {
             <>
               {/* Skip button */}
               <button 
-                onClick={() => setOnboardingPage(catalogueContent.length - 1)}
+                onClick={handleCatalogueComplete}
                 className="skip-button"
               >
                 Skip
@@ -2086,6 +2086,7 @@ const styles = `
     transition: all 0.3s ease;
     box-shadow: 0 8px 24px rgba(255, 255, 255, 0.2);
     font-family: 'DM Sans', sans-serif;
+    white-space: nowrap;
   }
 
   .start-button:hover {
