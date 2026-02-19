@@ -1,10 +1,11 @@
-// VERSION: 3.8 – Reliable Exact Time Notifications (v3.7.6 UI + native AlarmManager)
-// Updated: 2026-02-04
+// VERSION: 3.10 – Immediate Scheduling + Calendar Swipe Fix
+// Updated: 2026-02-18
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef  } from 'react';
 import { Calendar, Home, Plus, X, Trash2, Pencil } from 'lucide-react';
 import { initPushNotifications, triggerDailyNotificationCheck, cancelTimeBasedNotifications } from './PushNotifications';
 import { Capacitor } from '@capacitor/core';
+import ExactAlarm from './ExactAlarm';
 console.log('📱 Platform:', Capacitor.getPlatform());
 console.log('📱 Is native:', Capacitor.isNativePlatform());
 
@@ -341,6 +342,7 @@ export default function TaskTrackerApp() {
   // ============================================================================
   
   const [page, setPage] = useState('onboarding');
+  const isFirstLaunchRef = useRef(null);
   const [userName, setUserName] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [tasks, setTasks] = useState([]);
@@ -350,7 +352,9 @@ export default function TaskTrackerApp() {
   const [darkMode, setDarkMode] = useState(false);
   const [touchStartX, setTouchStartX] = useState(null);
   const [touchEndX, setTouchEndX] = useState(null);
-
+  const [visibleMonth, setVisibleMonth] = useState(new Date());
+  const [calendarTouchStartX, setCalendarTouchStartX] = useState(null);
+  const [calendarTouchEndX, setCalendarTouchEndX] = useState(null);
   // Modal states
   const [showAddTask, setShowAddTask] = useState(false);
   const [showEndTask, setShowEndTask] = useState(false);
@@ -508,6 +512,49 @@ export default function TaskTrackerApp() {
     setSelectedDate(d.toLocaleDateString('en-CA'));
   }, [selectedDate]);
 
+  const handleCalendarTouchStart = useCallback((e) => {
+    console.log('🔵 Calendar touch start:', e.touches ? e.touches[0].clientX : e.clientX);
+    setCalendarTouchStartX(e.touches ? e.touches[0].clientX : e.clientX);
+  }, []);
+
+  const handleCalendarTouchMove = useCallback((e) => {
+    setCalendarTouchEndX(e.touches ? e.touches[0].clientX : e.clientX);
+  }, []);
+
+  const handleCalendarTouchEnd = useCallback(() => {
+    console.log('🟢 Calendar touch end. Start:', calendarTouchStartX, 'End:', calendarTouchEndX);
+    
+    if (calendarTouchStartX === null || calendarTouchEndX === null) {
+      console.log('❌ Touch values null, skipping');
+      return;
+    }
+
+    const diff = calendarTouchStartX - calendarTouchEndX;
+    const swipeThreshold = 50;
+
+    console.log('📊 Swipe diff:', diff, 'Threshold:', swipeThreshold);
+
+    if (diff > swipeThreshold) {
+      console.log('⬅️ Swipe left → next month');
+      setVisibleMonth(prev => {
+        const next = new Date(prev);
+        next.setMonth(next.getMonth() + 1);
+        console.log('New month:', next.getMonth() + 1, '/', next.getFullYear());
+        return next;
+      });
+    } else if (diff < -swipeThreshold) {
+      console.log('➡️ Swipe right → previous month');
+      setVisibleMonth(prev => {
+        const next = new Date(prev);
+        next.setMonth(next.getMonth() - 1);
+        console.log('New month:', next.getMonth() + 1, '/', next.getFullYear());
+        return next;
+      });
+    }
+
+    setCalendarTouchStartX(null);
+    setCalendarTouchEndX(null);
+  }, [calendarTouchStartX, calendarTouchEndX]);
   // ============================================================================
   // INITIALIZATION & DATA LOADING
   // ============================================================================
@@ -518,17 +565,38 @@ export default function TaskTrackerApp() {
     initPushNotifications();
   }, []);
 
-  // Load all data from storage on mount
+// Load all data from storage on mount
   useEffect(() => {
     const loadData = async () => {
+      console.log('🔵 loadData START - Ref value:', isFirstLaunchRef.current);
       try {
         const userResult = await window.storage.get('userName');
-        if (userResult) {
-          setUserName(userResult.value);
-          setPage('tracker');
+        
+        // Only handle page routing if username exists and we haven't handled it yet
+        if (userResult && userResult.value) {
+          // Only update userName if it's different (prevents re-renders)
+          if (userResult.value !== userName) {
+            setUserName(userResult.value);
+          }
+          
+          // v3.10: Only set page if coming from app relaunch (not onboarding)
+          if (isFirstLaunchRef.current === null) {  // Only run once on first load
+            const hasLaunchedBefore = localStorage.getItem('hasLaunchedBefore');
+            console.log('📍 loadData - hasLaunchedBefore:', hasLaunchedBefore);
+            
+            if (!hasLaunchedBefore) {
+              console.log('🎉 First app launch → Homepage');
+              localStorage.setItem('hasLaunchedBefore', 'true');
+              setPage('tasks');
+            } else {
+              console.log('🔄 Subsequent launch → Tracker');
+              setPage('tracker');
+            }
+            isFirstLaunchRef.current = 'loadData'; // Mark as handled by loadData
+          }
         }
       } catch (e) {
-        // User not set yet
+        console.error('Error loading userName:', e);
       }
 
       try {
@@ -536,19 +604,15 @@ export default function TaskTrackerApp() {
         if (tasksResult) {
           setTasks(JSON.parse(tasksResult.value));
         }
-      } catch (e) {
-        // No tasks yet
-      }
+      } catch (e) {}
 
       try {
         const statusesResult = await window.storage.get('taskStatuses');
         if (statusesResult) {
           setTaskStatuses(JSON.parse(statusesResult.value));
         }
-      } catch (e) {
-        // No statuses yet
-      }
-      
+      } catch (e) {}
+        
       try {
         const darkResult = await window.storage.get('darkMode');
         if (darkResult) {
@@ -556,7 +620,6 @@ export default function TaskTrackerApp() {
         }
       } catch (e) {}
 
-      // Load or set app installation date
       try {
         const installDateResult = await window.storage.get('appInstallDate');
         if (installDateResult) {
@@ -574,7 +637,7 @@ export default function TaskTrackerApp() {
     };
 
     loadData();
-  }, []);
+  }, []); // Keeping empty array - we only want this on initial mount
 
   // Auto-mark uncompleted tasks at end of day
   useEffect(() => {
@@ -592,7 +655,9 @@ export default function TaskTrackerApp() {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && page === 'tracker') {
-        setSelectedDate(getTodayString());
+        const today = getTodayString();
+        setSelectedDate(today);
+        setVisibleMonth(new Date()); // v3.10: Sync visible month
       }
     };
 
@@ -650,17 +715,72 @@ export default function TaskTrackerApp() {
   /**
    * Handles onboarding completion
    */
-  const handleOnboardingNext = async () => {
-    if (nameInput.trim()) {
-      setUserName(nameInput.trim());
-      await saveUserName(nameInput.trim());
+const handleOnboardingNext = async () => {
+  if (nameInput.trim()) {
+    setUserName(nameInput.trim());
+    await saveUserName(nameInput.trim());
+    
+    // v3.10: First launch goes to homepage
+    const hasLaunchedBefore = localStorage.getItem('hasLaunchedBefore');
+    if (!hasLaunchedBefore) {
+      console.log('🎉 First onboarding completion → homepage');
+      localStorage.setItem('hasLaunchedBefore', 'true');
+      isFirstLaunchRef.current = 'onboarding'; // Mark as handled
+      setPage('tasks');
+
+       setTimeout(() => {
+        console.log('📍 After onboarding - Ref:', isFirstLaunchRef.current);
+        console.log('📍 After onboarding - localStorage:', localStorage.getItem('hasLaunchedBefore'));
+        }, 100);
+    } else {
+      console.log('🔄 Re-onboarding → tracker');
+      isFirstLaunchRef.current = 'onboarding';
       setPage('tracker');
+    }
+  }
+};
+
+  /**
+   * v3.10: Schedules exact alarm immediately for a newly created time-based task
+   * Ensures alarm fires today if time is in future, or tomorrow if time passed
+   */
+  const scheduleExactAlarmImmediately = async (task) => {
+    if (!task.isTimeBased || !task.targetTime) return;
+    
+    try {
+      // Parse target time into today's date
+      const [hours, minutes] = task.targetTime.split(':').map(Number);
+      const targetTime = new Date();
+      targetTime.setHours(hours, minutes, 0, 0);
+      
+      const now = new Date();
+      let scheduleTime = targetTime;
+      
+      // If time already passed today, schedule for tomorrow
+      if (targetTime <= now) {
+        scheduleTime = new Date(targetTime);
+        scheduleTime.setDate(scheduleTime.getDate() + 1);
+        console.log(`⏰ v3.10: Task "${task.name}" time passed, scheduling for tomorrow`);
+      } else {
+        console.log(`⏰ v3.10: Task "${task.name}" scheduling for today`);
+      }
+      
+      await ExactAlarm.schedule({
+        time: scheduleTime.getTime(),
+        taskId: task.id,
+        taskName: task.name
+      });
+      
+      console.log(`⏰ v3.10: Immediately scheduled alarm for "${task.name}" at ${scheduleTime.toLocaleString()}`);
+    } catch (error) {
+      console.error(`⏰ v3.10: Error scheduling immediate alarm for "${task.name}":`, error);
     }
   };
 
   /**
    * Handles adding a new task
    * v3.5: Enforces time selection for time-based tasks
+   * v3.10: Immediately schedules exact alarm if time-based
    */
   const handleAddTask = async () => {
     if (newTask.name.trim()) {
@@ -693,6 +813,11 @@ export default function TaskTrackerApp() {
       const updatedTasks = [...tasks, task];
       setTasks(updatedTasks);
       await saveTasks(updatedTasks);
+
+      // v3.10: Schedule exact alarm immediately if time-based
+      if (task.isTimeBased && task.targetTime) {
+        await scheduleExactAlarmImmediately(task);
+      }
       
       setNewTask({
         name: '',
@@ -1405,9 +1530,9 @@ export default function TaskTrackerApp() {
 
   if (page === 'tracker') {
     const generateCalendarDates = () => {
-      const current = new Date(selectedDate);
-      const year = current.getFullYear();
-      const month = current.getMonth();
+      // v3.10: Use visibleMonth for rendering, not selectedDate
+      const year = visibleMonth.getFullYear();
+      const month = visibleMonth.getMonth();
 
       const firstDay = new Date(year, month, 1);
       const lastDay = new Date(year, month + 1, 0);
@@ -1465,7 +1590,13 @@ export default function TaskTrackerApp() {
           </div>
 
           <button
-            onClick={() => setShowCalendar(!showCalendar)}
+            onClick={() => {
+              if (!showCalendar) {
+                // v3.10: Sync visible month to selected date when opening
+                setVisibleMonth(new Date(selectedDate));
+              }
+              setShowCalendar(!showCalendar);
+            }}
             className="header-button"
             title="Select Date"
           >
@@ -1477,7 +1608,20 @@ export default function TaskTrackerApp() {
         <div style={{display: 'none'}}>v3.7.5</div>
 
         {showCalendar && (
-          <div className="inline-calendar">
+          <div 
+            className="inline-calendar"
+            onTouchStart={handleCalendarTouchStart}
+            onTouchMove={handleCalendarTouchMove}
+            onTouchEnd={handleCalendarTouchEnd}
+            onMouseDown={handleCalendarTouchStart}
+            onMouseMove={handleCalendarTouchMove}
+            onMouseUp={handleCalendarTouchEnd}
+          >
+            {/* v3.10: Month name header */}
+            <div className="calendar-month-header">
+              {visibleMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </div>
+
             <div className="calendar-weekdays">
               <div className="weekday">S</div>
               <div className="weekday">M</div>
@@ -2330,6 +2474,20 @@ const styles = `
     animation: slideDown 0.2s ease;
     position: relative;
     z-index: 100;
+  }
+  .calendar-month-header {
+    text-align: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: #667eea;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #f0f0f8;
+  }
+
+  .dark .calendar-month-header {
+    color: #8b9dff;
+    border-bottom-color: #2a2f55;
   }
 
   @keyframes slideDown {
