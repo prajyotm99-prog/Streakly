@@ -1,4 +1,4 @@
-// VERSION: 3.11.1 – System Theme Default
+// VERSION: 3.11.2 – UI Cleanup
 // Updated: 2026-02-19
 
 import React, { useState, useEffect, useMemo, useCallback, useRef  } from 'react';
@@ -1102,13 +1102,6 @@ const handleOnboardingNext = async () => {
                             <rect x="9" y="9" width="6" height="6"/>
                           </svg>
                         </button>
-                        <button
-                          onClick={() => handleRemoveTask(task.id)}
-                          className="task-action-button remove-button"
-                          title="Delete Task"
-                        >
-                          <Trash2 size={20} />
-                        </button>
                       </div>
                     </div>
                     {/* Meta: frequency + started date (no endDate here — ended tasks have own section) */}
@@ -1247,7 +1240,7 @@ const handleOnboardingNext = async () => {
                   </select>
                 </div>
                 
-                <div className="form-group">
+                <div className="form-group checkbox-group">
                   <label className="checkbox-label">
                     <input
                       type="checkbox"
@@ -1262,7 +1255,7 @@ const handleOnboardingNext = async () => {
                       }}
                       className="form-checkbox"
                     />
-                    <span>Time-based task?</span>
+                    <span>  Time-based task?</span>
                   </label>
                 </div>
                 
@@ -1410,7 +1403,7 @@ const handleOnboardingNext = async () => {
                 </div>
 
                 {/* Time-based toggle */}
-                <div className="form-group">
+                <div className="form-group checkbox-group">
                   <label className="checkbox-label">
                     <input
                       type="checkbox"
@@ -2682,6 +2675,41 @@ const styles = `
     gap: 8px;
     cursor: pointer;
     user-select: none;
+  }
+
+  .checkbox-group {
+    padding: 0;
+  }
+
+  .checkbox-group .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: transparent;
+    border: 2px solid #e0e0f0;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin: 0;
+  }
+
+  .checkbox-group .checkbox-label:hover {
+    border-color: #667eea;
+  }
+
+  .checkbox-group .checkbox-label span {
+    font-size: 16px;
+    font-weight: 500;
+    color: inherit;
+  }
+
+  .dark .checkbox-group .checkbox-label {
+    border-color: #2a2f55;
+  }
+
+  .dark .checkbox-group .checkbox-label:hover {
+    border-color: #667eea;
   }
 
   .form-checkbox {
