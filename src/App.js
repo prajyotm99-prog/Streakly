@@ -1,5 +1,5 @@
-// VERSION: 3.10 – Immediate Scheduling + Calendar Swipe Fix
-// Updated: 2026-02-18
+// VERSION: 3.11.1 – System Theme Default
+// Updated: 2026-02-19
 
 import React, { useState, useEffect, useMemo, useCallback, useRef  } from 'react';
 import { Calendar, Home, Plus, X, Trash2, Pencil } from 'lucide-react';
@@ -617,6 +617,11 @@ export default function TaskTrackerApp() {
         const darkResult = await window.storage.get('darkMode');
         if (darkResult) {
           setDarkMode(darkResult.value === 'true');
+        } else {
+          // v3.11.1: Auto-detect system theme on first load
+          const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          setDarkMode(systemPrefersDark);
+          await window.storage.set('darkMode', String(systemPrefersDark));
         }
       } catch (e) {}
 
