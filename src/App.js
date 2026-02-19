@@ -1,4 +1,4 @@
-// VERSION: 3.11.2 – UI Cleanup
+// VERSION: 3.11.3 – Onboarding catalouge 
 // Updated: 2026-02-19
 
 import React, { useState, useEffect, useMemo, useCallback, useRef  } from 'react';
@@ -343,6 +343,7 @@ export default function TaskTrackerApp() {
   
   const [page, setPage] = useState('onboarding');
   const isFirstLaunchRef = useRef(null);
+  const [onboardingPage, setOnboardingPage] = useState(0);
   const [userName, setUserName] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [tasks, setTasks] = useState([]);
@@ -579,20 +580,26 @@ export default function TaskTrackerApp() {
             setUserName(userResult.value);
           }
           
-          // v3.10: Only set page if coming from app relaunch (not onboarding)
-          if (isFirstLaunchRef.current === null) {  // Only run once on first load
-            const hasLaunchedBefore = localStorage.getItem('hasLaunchedBefore');
-            console.log('📍 loadData - hasLaunchedBefore:', hasLaunchedBefore);
+          // v3.11.3: Check if user has seen onboarding
+          if (isFirstLaunchRef.current === null) {
+            const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+            console.log('📍 loadData - hasSeenOnboarding:', hasSeenOnboarding);
             
-            if (!hasLaunchedBefore) {
-              console.log('🎉 First app launch → Homepage');
-              localStorage.setItem('hasLaunchedBefore', 'true');
-              setPage('tasks');
+            if (!hasSeenOnboarding) {
+              console.log('🎉 First install → Onboarding');
+              setPage('onboarding');
             } else {
-              console.log('🔄 Subsequent launch → Tracker');
-              setPage('tracker');
+              const hasLaunchedBefore = localStorage.getItem('hasLaunchedBefore');
+              if (!hasLaunchedBefore) {
+                console.log('🎉 First app launch → Homepage');
+                localStorage.setItem('hasLaunchedBefore', 'true');
+                setPage('tasks');
+              } else {
+                console.log('🔄 Subsequent launch → Tracker');
+                setPage('tracker');
+              }
             }
-            isFirstLaunchRef.current = 'loadData'; // Mark as handled by loadData
+            isFirstLaunchRef.current = 'loadData';
           }
         }
       } catch (e) {
@@ -720,25 +727,27 @@ export default function TaskTrackerApp() {
   /**
    * Handles onboarding completion
    */
+const handleCatalogueComplete = () => {
+  console.log('📖 Catalogue complete → Name input');
+  setOnboardingPage(3); // Move to name input page (page 4)
+};
+
 const handleOnboardingNext = async () => {
   if (nameInput.trim()) {
     setUserName(nameInput.trim());
     await saveUserName(nameInput.trim());
     
-    // v3.10: First launch goes to homepage
+    // v3.11.3: First onboarding completion → Homepage, then tracker on subsequent launches
+    localStorage.setItem('hasSeenOnboarding', 'true');
+    
     const hasLaunchedBefore = localStorage.getItem('hasLaunchedBefore');
     if (!hasLaunchedBefore) {
-      console.log('🎉 First onboarding completion → homepage');
+      console.log('🎉 First onboarding completion → Homepage');
       localStorage.setItem('hasLaunchedBefore', 'true');
-      isFirstLaunchRef.current = 'onboarding'; // Mark as handled
-      setPage('tasks');
-
-       setTimeout(() => {
-        console.log('📍 After onboarding - Ref:', isFirstLaunchRef.current);
-        console.log('📍 After onboarding - localStorage:', localStorage.getItem('hasLaunchedBefore'));
-        }, 100);
+      isFirstLaunchRef.current = 'onboarding';
+      setPage('tasks'); // First time → Homepage
     } else {
-      console.log('🔄 Re-onboarding → tracker');
+      console.log('🔄 Re-onboarding → Tracker');
       isFirstLaunchRef.current = 'onboarding';
       setPage('tracker');
     }
@@ -971,31 +980,143 @@ const handleOnboardingNext = async () => {
   // ============================================================================
 
   if (page === 'onboarding') {
+    const catalogueContent = [
+      {
+        title: 'Create Tasks in Seconds',
+        bullets: [
+          'Daily / Weekly tracking',
+          'Time-based scheduling',
+          'Edit anytime',
+          'Active & Ended separation'
+        ]
+      },
+      {
+        title: 'Swipe Through Your Progress',
+        bullets: [
+          'Swipe tracker to change dates',
+          'Swipe calendar to change months',
+          'Streak highlights with flame',
+          'History preserved after ending task'
+        ]
+      },
+      {
+        title: 'Never Miss What Matters',
+        bullets: [
+          'Exact time alerts',
+          'Works when app is killed',
+          'Auto re-schedules after reboot',
+          'Cancels when task completed'
+        ]
+      }
+    ];
+
+    // Page 0-2: Catalogue, Page 3: Name input
+    const isNameInputPage = onboardingPage === 3;
+    const isCataloguePage = onboardingPage < 3;
+    const currentCatalogue = catalogueContent[onboardingPage];
+    const isLastCataloguePage = onboardingPage === catalogueContent.length - 1;
+
     return (
       <div className={`app-container ${darkMode ? 'dark' : ''} onboarding-page`}>
         <div className="onboarding-content">
-          <h1 className="onboarding-title">Welcome</h1>
-          <input
-            type="text"
-            placeholder="Enter your name"
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleOnboardingNext()}
-            className="name-input"
-            autoFocus
-          />
-          <button 
-            onClick={handleOnboardingNext}
-            className="next-button"
-            disabled={!nameInput.trim()}
-          >
-            Next
-          </button>
+          {isCataloguePage && (
+            <>
+              {/* Skip button */}
+              <button 
+                onClick={() => setOnboardingPage(catalogueContent.length - 1)}
+                className="skip-button"
+              >
+                Skip
+              </button>
+
+              {/* Catalogue Content */}
+              <div className="onboarding-main">
+                <h1 className="onboarding-title">{currentCatalogue.title}</h1>
+                <ul className="onboarding-bullets">
+                  {currentCatalogue.bullets.map((bullet, index) => (
+                    <li key={index} className="onboarding-bullet">
+                      <span className="bullet-icon">✓</span>
+                      <span className="bullet-text">{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Page indicators */}
+              <div className="onboarding-indicators">
+                {catalogueContent.map((_, index) => (
+                  <div
+                    key={index}
+                    className={`indicator ${index === onboardingPage ? 'active' : ''}`}
+                  />
+                ))}
+              </div>
+
+              {/* Navigation buttons */}
+              <div className="onboarding-nav">
+                {onboardingPage > 0 && (
+                  <button
+                    onClick={() => setOnboardingPage(onboardingPage - 1)}
+                    className="nav-button secondary"
+                  >
+                    Back
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    if (isLastCataloguePage) {
+                      handleCatalogueComplete();
+                    } else {
+                      setOnboardingPage(onboardingPage + 1);
+                    }
+                  }}
+                  className="nav-button primary"
+                  style={onboardingPage === 0 ? { marginLeft: 'auto' } : {}}
+                >
+                  {isLastCataloguePage ? 'Get Started' : 'Next'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {isNameInputPage && (
+            <>
+              {/* Name Input Page */}
+              <div className="onboarding-main">
+                <h1 className="onboarding-title">What should we call you?</h1>
+                <input
+                  type="text"
+                  placeholder="Enter your name"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleOnboardingNext()}
+                  className="name-input"
+                  autoFocus
+                />
+              </div>
+
+              {/* Navigation */}
+              <div className="onboarding-nav">
+                <button
+                  onClick={() => setOnboardingPage(2)}
+                  className="nav-button secondary"
+                >
+                  Back
+                </button>
+                <button 
+                  onClick={handleOnboardingNext}
+                  className="nav-button primary"
+                  disabled={!nameInput.trim()}
+                >
+                  Start Tracking
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
   }
-
   // ============================================================================
   // RENDER: TASKS MANAGEMENT PAGE (HOMEPAGE)
   // v3.7.5: Added streak badge, time display, edit button
@@ -1821,11 +1942,155 @@ const styles = `
 
   .onboarding-title {
     font-family: 'Fraunces', serif;
-    font-size: 48px;
+    font-size: 32px;
     font-weight: 700;
     color: #ffffff;
-    margin-bottom: 48px;
+    margin-bottom: 32px;
     text-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    text-align: center;
+  }
+
+  .skip-button {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .skip-button:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .onboarding-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 40px 0;
+  }
+
+  .onboarding-bullets {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .onboarding-bullet {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 0;
+  }
+
+  .bullet-icon {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .bullet-text {
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 16px;
+    line-height: 1.5;
+    padding-top: 2px;
+  }
+
+  .onboarding-indicators {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin: 32px 0 24px;
+  }
+
+  .indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transition: all 0.3s ease;
+  }
+
+  .indicator.active {
+    width: 24px;
+    border-radius: 4px;
+    background: #ffffff;
+  }
+
+  .onboarding-nav {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .nav-button {
+    flex: 1;
+    padding: 16px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .nav-button.primary {
+    background: #ffffff;
+    color: #667eea;
+  }
+
+  .nav-button.primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.3);
+  }
+
+  .nav-button.secondary {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+  }
+
+  .nav-button.secondary:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .start-button {
+    width: 100%;
+    padding: 18px 24px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #667eea;
+    background: #ffffff;
+    border: none;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.2);
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .start-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(255, 255, 255, 0.3);
   }
 
   .name-input {
